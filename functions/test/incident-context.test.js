@@ -286,5 +286,59 @@ function sample(overrides = {}) {
         assert.strictEqual(logEntryRequests.length, 0);
     }
 
+    // 원인 위치: 같은 시각 서버 에러 로그가 있으면 서버, 요청 로그만 없으면 앞단 응답 가능성을 근거에 덧붙임
+    {
+        queryRows = [[sample()]];
+        logEntries = [
+            { metadata: { insertId: "r", httpRequest: { requestMethod: "GET", requestUrl: "https://x/api/a", status: 503, latency: "1s" } } },
+            { metadata: { insertId: "e1", severity: "ERROR" }, data: "boom" },
+            { metadata: { insertId: "e2", severity: "ERROR" }, data: "boom2" }
+        ];
+        const withErrors = await buildAnalysisContext(group, "2026-10-28");
+
+        assert.deepStrictEqual(withErrors.origin, { kind: "server", reasons: ["같은 시각 서버 에러 로그 2건"] });
+
+        queryRows = [[sample()]];
+        logEntries = [];
+        const withoutLogs = await buildAnalysisContext(group, "2026-10-28");
+
+        assert.strictEqual(withoutLogs.origin.kind, "server");
+        assert.ok(withoutLogs.origin.reasons.some((reason) => reason.includes("요청 로그 없음")));
+
+        queryRows = [[sample()]];
+        logFailure = new Error("PERMISSION_DENIED");
+        const failedLogs = await buildAnalysisContext(group, "2026-10-28");
+        logFailure = undefined;
+
+        assert.deepStrictEqual(failedLogs.origin, { kind: "server", reasons: ["서버가 503 응답"] });
+    }
+
+    // 원인 위치: 오류 종류, REST가 아닌 오류, 크래시 스택의 앱 코드 프레임으로 분류
+    {
+        logEntries = [];
+        const nonRestGroup = { ...group, restStatusCode: "" };
+
+        queryRows = [[sample({
+            customKeys: JSON.stringify([{ key: "NSUnderlyingError", value: "Nexa.NXError.timeout(URLError)" }])
+        })]];
+        assert.strictEqual((await buildAnalysisContext(nonRestGroup, "2026-10-28")).origin.kind, "ios");
+
+        queryRows = [[sample({ customKeys: "[]" })]];
+        assert.strictEqual((await buildAnalysisContext(nonRestGroup, "2026-10-28")).origin.kind, "ios");
+
+        const fatalGroup = { ...nonRestGroup, isFatal: true };
+        const crashSample = (owner) => sample({
+            customKeys: "[]",
+            errorFrames: "[]",
+            crashFrames: frames({ file: "A.swift", line: 1, symbol: "a", library: "App", owner })
+        });
+
+        queryRows = [[crashSample("DEVELOPER")]];
+        assert.strictEqual((await buildAnalysisContext(fatalGroup, "2026-10-28")).origin.kind, "ios");
+
+        queryRows = [[crashSample("VENDOR")]];
+        assert.strictEqual((await buildAnalysisContext(fatalGroup, "2026-10-28")).origin.kind, "ios");
+    }
+
     console.log("incident-context.test.js passed");
 })();

@@ -3,6 +3,8 @@ import { defineSecret } from "firebase-functions/params";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { toError } from "../common/error";
 import { analyzeIssue } from "./analyze";
+import { classifyOrigin, originLayer } from "./classify";
+import type { Origin } from "./classify";
 import {
     buildAnalysisContext,
     groupTitle,
@@ -75,8 +77,17 @@ async function analyzeGroup(
         metrics
     };
 
+    let origin: Origin = classifyOrigin({
+        restStatusCode: group.restStatusCode,
+        isFatal: group.isFatal,
+        customKeys: [],
+        hasDeveloperFrame: false,
+        serverLogs: { queried: false, requestMatches: 0, errorLogs: 0 }
+    });
+
     try {
         const context = await buildAnalysisContext(group, date);
+        origin = context.origin;
         const { riskEvidence, sources } = await analyzeIssue(
             openAiApiKeySecret.value(),
             context
@@ -85,13 +96,15 @@ async function analyzeGroup(
             riskEvidence,
             sources
         );
-        const verified = applyKnownFlags(checked, group.isFatal);
+        const verified = applyOrigin(applyKnownFlags(checked, group.isFatal), origin);
         const score = scoreRisk(verified, metrics);
 
         logger.info("이슈 분석 완료", {
             issueId: group.issueId,
             restStatusCode: group.restStatusCode,
             affectedUsers: group.affectedUsers,
+            origin: origin.kind,
+            originReasons: origin.reasons,
             rubricVersion: score.rubricVersion,
             levels: score.levels,
             grade: score.grade,
@@ -99,11 +112,11 @@ async function analyzeGroup(
             autoFixEligible: score.autoFixEligible,
             rejectedEvidenceIds
         });
-        return { ...summary, riskEvidence: verified, score };
+        return { ...summary, origin, riskEvidence: verified, score };
     } catch (error) {
         logger.error("이슈 분석 실패", toError(error), { issueId: group.issueId });
         const riskEvidence = unanalyzedEvidence(group.issueId);
-        return { ...summary, riskEvidence, score: scoreRisk(riskEvidence, metrics) };
+        return { ...summary, origin, riskEvidence, score: scoreRisk(riskEvidence, metrics) };
     }
 }
 
@@ -120,6 +133,17 @@ function applyKnownFlags(
             fatal: { value: isFatal, evidenceIds: [] },
             launchCrash: isFatal ? severity.launchCrash : { value: false, evidenceIds: [] }
         }
+    };
+}
+
+// 규칙으로 판정한 원인 위치를 모델이 낸 오류 계층 값 위에 덮어씀
+function applyOrigin(
+    riskEvidence: RiskEvidence,
+    origin: Origin
+): RiskEvidence {
+    return {
+        ...riskEvidence,
+        classification: { ...riskEvidence.classification, layer: originLayer(origin.kind) }
     };
 }
 

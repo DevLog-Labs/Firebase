@@ -37,6 +37,7 @@ const context = {
     issueId: "issue-1",
     title: "fetchTodos 실패 user@example.com",
     isFatal: false,
+    origin: { kind: "server", reasons: ["서버가 503 응답"] },
     sources: {
         stack: [{ ref: "TodoMapper.swift:42", text: "Fatal: keyNotFound token=abc123" }],
         serverLog: [],
@@ -124,6 +125,7 @@ for (const broken of [
             assert.ok(!JSON.stringify(call.data).includes("abc123"));
             assert.ok(call.data.input.includes("[email]"));
             assert.ok(call.data.input.includes('"isFatal":false'));
+            assert.ok(call.data.input.includes('"origin":{"kind":"server"'));
             assert.ok(!JSON.stringify(call.data).includes("sk-test-key"));
 
             // 결과: 이슈 ID와 루브릭 버전을 채우고 마스킹된 원본을 반환

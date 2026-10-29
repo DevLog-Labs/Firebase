@@ -44,6 +44,7 @@ function item(id, affectedUsers, overrides = {}) {
     return {
         issueId: id,
         title: overrides.title ?? `이슈 ${id}`,
+        origin: { kind: "server", reasons: ["서버가 503 응답"] },
         url: `https://console.firebase.google.com/issue/${id}`,
         riskEvidence: evidence,
         score: scoreRisk(evidence, metrics),
@@ -77,6 +78,7 @@ function totalLength(embed) {
     assert.ok(brief.description.includes("이슈 mid1"));
     assert.ok(brief.description.includes("이슈 low0"));
     assert.ok(first.fields.some((field) => field.name === "근거" && field.value.includes("TodoMapper.swift:42")));
+    assert.ok(first.fields.some((field) => field.name === "분류" && field.value.startsWith("서버 · decode")));
 }
 
 // 이슈가 없으면 embed 없이 본문만 있는 메시지 한 건

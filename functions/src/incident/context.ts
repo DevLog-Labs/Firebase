@@ -3,6 +3,7 @@ import { Logging } from "@google-cloud/logging";
 import * as logger from "firebase-functions/logger";
 import { getZonedParts } from "../common/date";
 import { toError } from "../common/error";
+import { classifyOrigin } from "./classify";
 import type {
     AnalysisContext,
     SourceText
@@ -122,15 +123,15 @@ SELECT
     TO_JSON_STRING(custom_keys) AS customKeys,
     TO_JSON_STRING(ARRAY(SELECT AS STRUCT b.name, b.params FROM UNNEST(breadcrumbs) b)) AS breadcrumbs,
     TO_JSON_STRING(ARRAY(
-        SELECT AS STRUCT f.file, f.line, f.symbol, f.library
+        SELECT AS STRUCT f.file, f.line, f.symbol, f.library, f.owner
         FROM UNNEST(errors[SAFE_OFFSET(0)].frames) f
     )) AS errorFrames,
     TO_JSON_STRING(ARRAY(
-        SELECT AS STRUCT f.file, f.line, f.symbol, f.library
+        SELECT AS STRUCT f.file, f.line, f.symbol, f.library, f.owner
         FROM UNNEST(exceptions[SAFE_OFFSET(0)].frames) f
     )) AS exceptionFrames,
     TO_JSON_STRING(ARRAY(
-        SELECT AS STRUCT f.file, f.line, f.symbol, f.library
+        SELECT AS STRUCT f.file, f.line, f.symbol, f.library, f.owner
         FROM UNNEST((SELECT t.frames FROM UNNEST(threads) t WHERE t.crashed LIMIT 1)) f
     )) AS crashFrames
 FROM \`${crashlyticsTable}\`
@@ -215,6 +216,8 @@ type StackFrame = {
     symbol: string | null;
     // 프레임이 속한 라이브러리 이름
     library: string | null;
+    // 프레임 소유 구분. 앱 개발자 코드는 DEVELOPER
+    owner: string | null;
 };
 
 // breadcrumb 하나
@@ -307,14 +310,29 @@ export async function buildAnalysisContext(
     date: string
 ): Promise<AnalysisContext> {
     const samples = await selectSamples(group, date);
+    const serverLogs = await serverLogResult(group, samples);
+    const latest = samples[0];
 
     return {
         issueId: group.issueId,
         title: groupTitle(group),
         isFatal: group.isFatal,
+        origin: classifyOrigin({
+            restStatusCode: group.restStatusCode,
+            isFatal: group.isFatal,
+            customKeys: latest === undefined
+                ? []
+                : JSON.parse(latest.customKeys) as { key: string; value: string }[],
+            hasDeveloperFrame: latestFrames(samples).some((frame) => frame.owner === "DEVELOPER"),
+            serverLogs: {
+                queried: serverLogs.queried,
+                requestMatches: serverLogs.requestMatches,
+                errorLogs: serverLogs.errorLogs
+            }
+        }),
         sources: {
             stack: stackSources(samples),
-            serverLog: await serverLogSources(group, samples),
+            serverLog: serverLogs.sources,
             code: [],
             event: [
                 ...samples.map(eventSource),
@@ -402,16 +420,19 @@ function timestampText(value: unknown): string {
     return new Date(String(raw)).toISOString();
 }
 
-// 가장 최근 대표 이벤트의 스택 프레임을 프레임 하나당 원문 한 건으로 변환
-function stackSources(samples: SampleEvent[]): SourceText[] {
+// 가장 최근 대표 이벤트의 스택 프레임 목록. 비치명 오류, 예외, 크래시 스레드 순으로 비어 있지 않은 첫 목록
+function latestFrames(samples: SampleEvent[]): StackFrame[] {
     const latest = samples[0];
     if (latest === undefined) { return []; }
 
-    const frames = [latest.errorFrames, latest.exceptionFrames, latest.crashFrames]
+    return [latest.errorFrames, latest.exceptionFrames, latest.crashFrames]
         .map((json) => JSON.parse(json) as StackFrame[])
         .find((candidate) => candidate.length > 0) ?? [];
+}
 
-    return frames
+// 가장 최근 대표 이벤트의 스택 프레임을 프레임 하나당 원문 한 건으로 변환
+function stackSources(samples: SampleEvent[]): SourceText[] {
+    return latestFrames(samples)
         .filter((frame) => frame.file !== null || frame.symbol !== null)
         .slice(0, maxStackFrames)
         .map((frame, index) => ({
@@ -438,13 +459,26 @@ function eventSource(sample: SampleEvent): SourceText {
     };
 }
 
-// REST 오류일 때 가장 최근 이벤트 시각 전후의 서버 로그 중 상태 코드가 같은 요청 로그와 에러 심각도 로그를 원문으로 변환
-async function serverLogSources(
+// 서버 로그 조회 결과. 원문과 원인 위치 판정에 쓰는 개수를 함께 담음
+type ServerLogResult = {
+    // 분석 입력으로 쓰는 서버 로그 원문 목록
+    sources: SourceText[];
+    // 서버 로그를 조회했고 성공했는지 여부
+    queried: boolean;
+    // 같은 상태 코드의 요청 로그 개수
+    requestMatches: number;
+    // 요청 로그가 아닌 에러 심각도 로그 개수
+    errorLogs: number;
+};
+
+// REST 오류일 때 가장 최근 이벤트 시각 전후의 서버 로그 중 상태 코드가 같은 요청 로그와 에러 심각도 로그를 원문과 개수로 변환
+async function serverLogResult(
     group: ErrorGroup,
     samples: SampleEvent[]
-): Promise<SourceText[]> {
+): Promise<ServerLogResult> {
     const latest = samples[0];
-    if (group.restStatusCode === "" || latest === undefined) { return []; }
+    const none: ServerLogResult = { sources: [], queried: false, requestMatches: 0, errorLogs: 0 };
+    if (group.restStatusCode === "" || latest === undefined) { return none; }
 
     const center = new Date(latest.eventTimestamp).getTime();
     const from = new Date(center - serverLogWindowMilliseconds).toISOString();
@@ -463,16 +497,22 @@ async function serverLogSources(
             orderBy: "timestamp desc",
             pageSize: maxServerLogs
         });
-        return entries.slice(0, maxServerLogs).map((entry) => serverLogSource(
-            entry.metadata as ServerLogMetadata,
-            entry.data
-        ));
+        const found = entries.slice(0, maxServerLogs);
+        const metadata = found.map((entry) => entry.metadata as ServerLogMetadata);
+        return {
+            sources: found.map((entry, index) => serverLogSource(metadata[index], entry.data)),
+            queried: true,
+            requestMatches: metadata.filter(
+                (item) => item.httpRequest?.status === Number(group.restStatusCode)
+            ).length,
+            errorLogs: metadata.filter((item) => item.httpRequest === undefined).length
+        };
     } catch (error) {
         logger.warn("서버 로그 조회에 실패해 서버 로그 없이 분석합니다.", {
             issueId: group.issueId,
             error: toError(error).message
         });
-        return [];
+        return none;
     }
 }
 

@@ -160,7 +160,7 @@ function discordMessages() {
             Object.keys(fields).sort(),
             [
                 "affectedUsers", "autoFixEligible", "decidingAxes", "grade", "issueId",
-                "levels", "rejectedEvidenceIds", "restStatusCode", "rubricVersion"
+                "levels", "origin", "originReasons", "rejectedEvidenceIds", "restStatusCode", "rubricVersion"
             ]
         );
         assert.deepStrictEqual(fields.rejectedEvidenceIds, []);

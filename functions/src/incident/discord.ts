@@ -1,4 +1,6 @@
 import axios from "axios";
+import { originLabel } from "./classify";
+import type { Origin } from "./classify";
 import type { RiskEvidence } from "./schema";
 import type {
     ImpactMetrics,
@@ -58,6 +60,8 @@ export type SummaryItem = {
     title: string;
     // Crashlytics 콘솔의 이슈 링크
     url: string;
+    // 규칙으로 판정한 원인 위치
+    origin: Origin;
     // 검증을 거친 분석 결과
     riskEvidence: RiskEvidence;
     // 위험도 계산 결과
@@ -149,7 +153,7 @@ function detailEmbed(item: SummaryItem): DiscordEmbed {
     const { riskEvidence, score, metrics } = item;
     const { classification } = riskEvidence;
     const classificationText = [
-        classification.layer,
+        originLabel(item.origin.kind),
         classification.cause,
         classification.httpStatus === null ? "" : String(classification.httpStatus)
     ].filter((part) => part !== "").join(" · ");
