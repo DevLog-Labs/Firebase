@@ -60,7 +60,6 @@ export function classifyOrigin(input: OriginInput): Origin {
         input.customKeys.find((item) => item.key === key)?.value ?? ""
     );
     const nxCase = /Nexa\.NXError\.(\w+)/.exec(valueOf("NSUnderlyingError"))?.[1];
-    const underlyingDomain = valueOf("underlyingDomain");
     const status = input.restStatusCode === "" ? null : Number(input.restStatusCode);
 
     if (nxCase === "transport" || nxCase === "timeout") {
@@ -90,9 +89,6 @@ export function classifyOrigin(input: OriginInput): Origin {
                 ? "크래시 스택에 앱 코드 프레임 존재"
                 : "크래시 스택에 앱 코드 프레임 없음. 외부 SDK 사용 방식 확인"]
         };
-    }
-    if (/firebase|firestore|^FIR/i.test(underlyingDomain)) {
-        return { kind: "server", reasons: [`Firebase 서비스 오류(${underlyingDomain}). 규칙과 인덱스 확인`] };
     }
     return { kind: "ios", reasons: ["REST 응답 없이 앱 내부에서 발생한 오류"] };
 }

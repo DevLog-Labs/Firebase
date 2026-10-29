@@ -99,16 +99,11 @@ assert.ok(classifyOrigin(input({ restStatusCode: "422" })).reasons[0].includes("
     assert.notStrictEqual(withFrame.reasons[0], withoutFrame.reasons[0]);
 }
 
-// REST가 아닌 비치명 오류: Firebase 오류 도메인이면 서버, 그 밖은 앱 내부 오류로 iOS
-for (const domain of ["FIRFirestoreErrorDomain", "FirebaseFirestore.FirestoreErrorCode", "FIRAuthErrorDomain"]) {
+// REST 응답이 없는 비치명 오류는 오류 도메인과 무관하게 앱 내부 오류로 iOS
+for (const domain of ["FIRFirestoreErrorDomain", "FIRAuthErrorDomain", "DevLog.TodoError"]) {
     const origin = classifyOrigin(input({ customKeys: [{ key: "underlyingDomain", value: domain }] }));
-    assert.strictEqual(origin.kind, "server", domain);
-    assert.ok(origin.reasons[0].includes(domain));
+    assert.strictEqual(origin.kind, "ios", domain);
 }
-assert.strictEqual(
-    classifyOrigin(input({ customKeys: [{ key: "underlyingDomain", value: "DevLog.TodoError" }] })).kind,
-    "ios"
-);
 
 // 분류별 표시 이름과 오류 계층 변환
 assert.deepStrictEqual(["server", "ios", "shared"].map(originLabel), ["서버", "iOS", "공동"]);

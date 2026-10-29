@@ -348,7 +348,7 @@ export async function buildAnalysisContext(
     };
 }
 
-// 고칠 위치에 맞춰 앱 스택 프레임의 코드와 서버 요청 경로의 코드를 읽어 코드 원문으로 변환
+// 고칠 위치에 맞춰 앱 스택 프레임의 코드와 서버 요청 경로의 코드를 읽어 코드 원문으로 변환. 프레임의 owner 구분은 앱 모듈도 외부 코드로 표시하므로 쓰지 않고, 앱 저장소에 있는 파일만 읽음
 async function codeSources(
     codeReader: CodeReader,
     origin: Origin,
@@ -356,7 +356,7 @@ async function codeSources(
     serverLogs: ServerLogResult
 ): Promise<SourceText[]> {
     const appFrames = latestFrames(samples)
-        .filter((frame) => frame.owner === "DEVELOPER" && frame.file !== null && frame.line !== null)
+        .filter((frame) => frame.file !== null && frame.line !== null)
         .map((frame) => ({ file: frame.file as string, line: frame.line as number }));
     const requestPath = serverLogs.requestPaths[0];
 

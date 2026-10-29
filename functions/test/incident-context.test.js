@@ -378,14 +378,14 @@ function sample(overrides = {}) {
         assert.deepStrictEqual(readerCalls, [["server", "/api/todos/t1/deletion-request"]]);
         assert.deepStrictEqual(server.sources.code.map((item) => item.ref), ["Firebase:todos.controller.ts:1-1"]);
 
-        // 공동: 앱 코드와 서버 코드를 모두 읽고 앱 프레임은 파일과 줄이 있는 개발자 코드만 전달
+        // 공동: 앱 코드와 서버 코드를 모두 읽고 앱 프레임은 owner와 무관하게 파일과 줄이 있는 것만 전달
         readerCalls.length = 0;
         queryRows = [[withFrames()]];
         logEntries = [requestLog(404)];
         const shared = await buildAnalysisContext({ ...group, restStatusCode: "404" }, "2026-10-28", reader);
 
         assert.deepStrictEqual(readerCalls, [
-            ["app", [{ file: "A.swift", line: 7 }]],
+            ["app", [{ file: "Helper.swift", line: 1 }, { file: "A.swift", line: 7 }]],
             ["server", "/api/todos/t1/deletion-request"]
         ]);
         assert.deepStrictEqual(shared.sources.code.map((item) => item.ref), ["iOS:A.swift:7", "Firebase:todos.controller.ts:1-1"]);
