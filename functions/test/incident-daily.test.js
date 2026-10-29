@@ -8,8 +8,9 @@ process.env.DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1/secret-tok
 let bigQueryResponses = [];
 let bigQueryFailure;
 class FakeBigQuery {
-    async query() {
+    async query(options) {
         if (bigQueryFailure) { throw bigQueryFailure; }
+        if (options.query.includes("AS installs")) { return [[]]; }
         return [bigQueryResponses.shift() ?? []];
     }
 }
@@ -68,7 +69,7 @@ function sampleRow(id) {
         osVersion: "26.7.1",
         deviceModel: "iPhone17,1",
         customKeys: JSON.stringify([{ key: "restErrorMessage", value: "user@example.com 확인" }]),
-        breadcrumbNames: "[]",
+        breadcrumbs: "[]",
         errorFrames: JSON.stringify([
             { file: "TodoCommandServiceImpl.swift", line: 62, symbol: "requestTodoDeletion", library: "Infra" }
         ]),
@@ -224,7 +225,7 @@ function discordMessages() {
         const failed = message.embeds.find((embed) => embed.description.includes("자동 분석에 실패했습니다"));
 
         assert.ok(failed);
-        assert.ok(failed.title.startsWith("등급 3"));
+        assert.ok(failed.title.startsWith("등급 2"));
         assert.strictEqual(errorLogs.length, 1);
         assert.strictEqual(errorLogs[0][0], "이슈 분석 실패");
         assert.strictEqual(message.content.endsWith("2건"), true);

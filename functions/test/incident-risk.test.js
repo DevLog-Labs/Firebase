@@ -229,7 +229,22 @@ const lowImpact = { affectedUsers: 3, isRegression: false };
     assert.strictEqual(score.autoFixEligible, false);
 }
 
-// 최종 등급은 가장 나쁜 축의 수준이며 그 축을 결정 축으로 보고
+// 알림 등급은 영향도와 심각도 중 높은 수준이며 변경 위험과 불확실성은 등급에 반영하지 않고 자동 수정 자격만 막음
+{
+    const noEvidence = riskEvidence({
+        evidence: [],
+        rootCause: { summary: "", codeLocation: null, reproducible: false },
+        proposedFix: { type: "none", files: [], reversible: false }
+    });
+    const score = scoreRisk(noEvidence, lowImpact);
+
+    assert.strictEqual(score.levels.uncertainty, 3);
+    assert.strictEqual(score.grade, 1);
+    assert.deepStrictEqual(score.decidingAxes, ["severity"]);
+    assert.strictEqual(score.autoFixEligible, false);
+}
+
+// 알림 등급은 가장 나쁜 축의 수준이며 그 축을 결정 축으로 보고
 {
     const input = riskEvidence({
         severity: {

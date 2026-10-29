@@ -123,7 +123,7 @@ function applyKnownFlags(
     };
 }
 
-// 분석하지 못한 이슈를 모든 판단이 unknown이고 근거가 없는 결과로 표현. 불확실성이 최고 수준이 되어 등급 3으로 계산
+// 분석하지 못한 이슈를 모든 판단이 unknown이고 근거가 없는 결과로 표현. 심각도가 최대 수준 2가 되어 상세 요약에 올라감
 function unanalyzedEvidence(issueId: string): RiskEvidence {
     const unknownFlag = { value: "unknown" as const, evidenceIds: [] };
     return {
