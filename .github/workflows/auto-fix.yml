@@ -55,6 +55,7 @@ jobs:
             echo "- Edit only files under functions/src, functions/test, nestjs-api/src, or nestjs-api/test."
             echo "- Do not touch .github, firebase.json, firestore.rules, firestore.index.json, authentication code, or dependencies."
             echo "- Add or update a test that reproduces the problem when the change affects behavior."
+            echo "- Keep every change compatible with already released app versions: do not change the status code or fields of an existing successful response, and do not add retries to operations that are not idempotent."
             echo "- If the cause cannot be determined from the code, change nothing."
             echo "- End with a short summary in Korean. Write every sentence as a noun phrase, for example '재시도 처리 추가'."
             echo
