@@ -85,8 +85,16 @@ const sensitivePathPrefixes = [
     "nestjs-api/src/firebase/"
 ];
 
-// 알림 등급을 결정하는 축. 변경 위험과 불확실성은 자동 수정 가능 여부를 가르는 축이라 알림 등급에서 제외
+// 알림 등급을 결정하는 축. 변경 위험과 불확실성은 자동 수정 PR 자격을 가르는 축이라 알림 등급에서 제외
 const gradeAxes: RiskAxis[] = ["impact", "severity"];
+
+// 자동 수정 워크플로가 수정할 수 있는 경로 접두어 목록
+const autoFixPathPrefixes = [
+    "functions/src/",
+    "functions/test/",
+    "nestjs-api/src/",
+    "nestjs-api/test/"
+];
 
 // 자동 수정 PR 대상이 되기 위해 변경 위험과 불확실성이 넘지 않아야 하는 최대 수준. 영향도와 심각도는 PR을 사람이 검토하므로 제한하지 않음
 const autoFixMaxChangeRisk: RiskLevel = 1;
@@ -109,7 +117,9 @@ export function scoreRisk(
         ? []
         : gradeAxes.filter((axis) => levels[axis] === grade);
     const autoFixEligible = (
-        isAllowedFixType(riskEvidence.proposedFix.type)
+        riskEvidence.classification.layer === "server"
+        && isAllowedFixType(riskEvidence.proposedFix.type)
+        && isAutoFixScope(riskEvidence.proposedFix.files)
         && levels.changeRisk <= autoFixMaxChangeRisk
         && levels.uncertainty <= autoFixMaxUncertainty
         && riskEvidence.severity.dataLossPossible.value === false
@@ -193,6 +203,13 @@ function countConfidence(riskEvidence: RiskEvidence): number {
         rootCause.reproducible,
         isServerCrossChecked
     ].filter(Boolean).length;
+}
+
+// 수정 대상 파일이 하나 이상이고 모두 자동 수정 워크플로의 수정 범위 안인지 확인
+function isAutoFixScope(files: string[]): boolean {
+    return files.length > 0 && files.every(
+        (file) => autoFixPathPrefixes.some((prefix) => file.startsWith(prefix))
+    );
 }
 
 // 수정 유형이 자동 수정 허용 목록에 있는지 확인

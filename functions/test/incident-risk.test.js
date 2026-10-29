@@ -30,7 +30,7 @@ function riskEvidence(overrides = {}) {
     return {
         issueId: "issue-1",
         rubricVersion,
-        classification: { layer: "client", cause: "decode", httpStatus: null },
+        classification: { layer: "server", cause: "decode", httpStatus: null },
         evidence: [
             { id: "e1", source: "stack", ref: "TodoMapper.swift:42", quote: "keyNotFound" },
             { id: "e2", source: "serverLog", ref: "log-1", quote: "status=200" }
@@ -305,6 +305,25 @@ const lowImpact = { affectedUsers: 3, isRegression: false };
     assert.strictEqual(withFlag("securityArea", true), false);
     assert.strictEqual(scoreRisk(manyFiles, lowImpact).levels.changeRisk, 2);
     assert.strictEqual(scoreRisk(manyFiles, lowImpact).autoFixEligible, false);
+}
+
+// 서버로 분류되지 않았거나 수정 파일이 없거나 워크플로의 수정 범위 밖이면 자동 수정 대상에서 제외
+{
+    const eligible = (overrides) => scoreRisk(riskEvidence(overrides), lowImpact).autoFixEligible;
+    const fixOf = (files) => ({ type: "nullGuard", files, reversible: true });
+
+    for (const layer of ["client", "network", "unknown"]) {
+        assert.strictEqual(
+            eligible({ classification: { layer, cause: "decode", httpStatus: null } }),
+            false,
+            layer
+        );
+    }
+    assert.strictEqual(eligible({ proposedFix: fixOf([]) }), false);
+    assert.strictEqual(eligible({ proposedFix: fixOf(["Application/Infra/Foo.swift"]) }), false);
+    assert.strictEqual(eligible({ proposedFix: fixOf(["functions/package.json"]) }), false);
+    assert.strictEqual(eligible({ proposedFix: fixOf(["nestjs-api/src/todos/todos.service.ts", "README.md"]) }), false);
+    assert.strictEqual(eligible({ proposedFix: fixOf(["nestjs-api/src/todos/todos.service.ts", "nestjs-api/test/todos.spec.ts"]) }), true);
 }
 
 console.log("incident-risk.test.js passed");
