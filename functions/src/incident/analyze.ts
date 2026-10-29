@@ -36,6 +36,8 @@ const retryDelayMilliseconds = 2000;
 // 1. evidence의 ref는 입력의 sources에 있는 ref만 사용하고, quote는 해당 ref의 text에서 그대로 복사한 부분 문자열만 사용한다.
 // 2. severity의 blocksCoreFlow, dataLossPossible, securityArea, launchCrash는 true 또는 false로 판단하고 근거 evidence id를 evidenceIds에 넣는다. false는 인용한 근거가 실패가 한정적임을 보여 줄 때만 쓴다(예: 재시도할 수 있는 요청 하나의 실패이고 데이터 변경, 인증 영향, 크래시의 징후가 없음). 근거만으로 판단할 수 없으면 value를 "unknown", evidenceIds를 빈 배열로 둔다.
 // 2-1. fatal은 입력의 issue.isFatal 값을 그대로 severity.fatal에 넣고 evidenceIds는 빈 배열로 둔다. issue.isFatal이 false이면 launchCrash는 false이다.
+// 2-2. 이 앱의 핵심 흐름은 로그인, Todo 목록 조회, Todo 생성·수정·삭제이다. 오류 도메인, 스택 심볼, 요청 경로에서 실패한 동작을 추론한다. 핵심 흐름이고 근거가 요청 실패를 보여 주면 blocksCoreFlow를 true로 둔다. 푸시 알림 등록, 웹페이지 미리보기, 프로필 이미지 같은 부가 기능이면 false로 둔다.
+// 2-3. 사용자가 입력한 내용을 잃거나 손상시킬 수 있을 때만 dataLossPossible을 true로 둔다(예: 기기에만 있는 Todo 내용의 저장 실패). 조회 실패, 등록 실패, 삭제 요청 실패는 기존 데이터를 바꾸지 않으므로 false로 두고 동작을 보여 주는 근거를 인용한다. 자격 증명 유출, 권한 우회, 다른 사용자 데이터 접근처럼 보안 약점이나 노출을 시사하는 근거가 있을 때만 securityArea를 true로 둔다. 만료되거나 잘못된 토큰의 401 같은 일반 인증 실패와 푸시 알림 기기 토큰 문제는 보안 이슈가 아니므로 false로 두고 동작을 보여 주는 근거를 인용한다.
 // 3. rootCause.summary는 한국어 두 문장 이내로 쓴다. codeLocation은 stack 근거로 확인될 때만 채우고 아니면 null로 둔다.
 // 4. proposedFix.type은 스키마에 있는 유형 중 안전하게 적용할 수 있는 경우에만 고르고, 그렇지 않으면 "none"으로 둔다.
 // 5. 위험 점수나 등급은 출력하지 않는다.
@@ -46,6 +48,8 @@ const instructions = [
     "1. In evidence, use only refs that appear in the input sources. Each quote must be a substring copied verbatim from the text of that ref.",
     "2. Judge the severity flags blocksCoreFlow, dataLossPossible, securityArea, and launchCrash as true or false and list the supporting evidence ids in evidenceIds. Use false only when the cited evidence shows the failure is limited (for example, one failed request that can be retried, with no sign of data change, authentication impact, or crash). If the evidence alone cannot decide it, set value to \"unknown\" and evidenceIds to an empty array.",
     "2-1. Copy issue.isFatal from the input into severity.fatal with an empty evidenceIds array. If issue.isFatal is false, launchCrash is false.",
+    "2-2. The core flows of this app are signing in, loading the todo list, and creating, updating, or deleting todos. Infer the failing operation from the error domain, stack symbols, and request path. Set blocksCoreFlow to true when it is a core flow and the evidence shows the request failed. Set it to false for secondary features such as push notification registration, web page previews, or profile images.",
+    "2-3. Set dataLossPossible to true only when user-entered content could be lost or corrupted, for example a failed save of todo content that exists only on the device. Failed reads, failed registrations, and failed delete requests leave existing data unchanged, so set dataLossPossible to false for them and cite the evidence that shows the operation. Set securityArea to true only when the evidence suggests a security weakness or exposure, such as leaked credentials, an authorization bypass, or access to another user's data. Ordinary authentication failures (for example 401 for an expired or invalid token) and push notification device token problems are not security issues, so set securityArea to false and cite the evidence that shows the operation.",
     "3. Write rootCause.summary in Korean, in at most two sentences. Fill codeLocation only when stack evidence confirms it; otherwise set it to null.",
     "4. Choose a proposedFix.type from the schema only when the fix can be applied safely; otherwise set it to \"none\".",
     "5. Do not output a risk score or grade.",
