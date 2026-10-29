@@ -36,6 +36,10 @@ import {
     cleanupSoftDeletedWebPages
 } from "./webPage/cleanup";
 
+import {
+    sendDailyIncidentReport
+} from "./incident/daily";
+
 import { api } from "./rest/api";
 import {
     cleanupExpiredOAuthSessions,
@@ -68,6 +72,7 @@ export {
     removeTodoNotificationDocuments,
     cleanupSoftDeletedNotifications,
     cleanupSoftDeletedWebPages,
+    sendDailyIncidentReport,
     syncTodoNotificationCategory,
     api
 };
