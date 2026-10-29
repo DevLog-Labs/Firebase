@@ -1,8 +1,12 @@
-// 자동 수정을 허용하는 수정 유형 목록
+// 자동 수정을 허용하는 서버 API 수정 유형 목록. 앱 쪽 수정은 포함하지 않음
 export const allowedFixTypes = [
-    "optionalDecoding",
-    "nilGuard",
-    "messageText"
+    "statusCodeMapping",
+    "inputValidation",
+    "nullGuard",
+    "exceptionHandling",
+    "errorResponse",
+    "responseDefault",
+    "timeoutRetry"
 ] as const;
 
 // 자동 수정을 허용하는 수정 유형 하나

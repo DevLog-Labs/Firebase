@@ -42,7 +42,7 @@ export type RiskScore = {
     grade: RiskLevel;
     // 알림 등급을 결정한 축 목록. 등급이 0이면 빈 목록
     decidingAxes: RiskAxis[];
-    // 자동 수정 대상으로 삼을 수 있는지 여부
+    // 자동 수정 PR 대상으로 삼을 수 있는지 여부
     autoFixEligible: boolean;
 };
 
@@ -88,15 +88,11 @@ const sensitivePathPrefixes = [
 // 알림 등급을 결정하는 축. 변경 위험과 불확실성은 자동 수정 가능 여부를 가르는 축이라 알림 등급에서 제외
 const gradeAxes: RiskAxis[] = ["impact", "severity"];
 
-// 자동 수정 대상이 되기 위해 각 축이 넘지 않아야 하는 최대 수준
-const autoFixMaxLevels: Record<RiskAxis, RiskLevel> = {
-    impact: 1,
-    severity: 1,
-    changeRisk: 1,
-    uncertainty: 1
-};
+// 자동 수정 PR 대상이 되기 위해 변경 위험과 불확실성이 넘지 않아야 하는 최대 수준. 영향도와 심각도는 PR을 사람이 검토하므로 제한하지 않음
+const autoFixMaxChangeRisk: RiskLevel = 1;
+const autoFixMaxUncertainty: RiskLevel = 1;
 
-// 검증을 거친 분석 결과와 이슈 집계값으로 축별 수준, 알림 등급, 자동 수정 자격 계산
+// 검증을 거친 분석 결과와 이슈 집계값으로 축별 수준, 알림 등급, 자동 수정 PR 자격 계산
 export function scoreRisk(
     riskEvidence: RiskEvidence,
     metrics: ImpactMetrics
@@ -114,7 +110,10 @@ export function scoreRisk(
         : gradeAxes.filter((axis) => levels[axis] === grade);
     const autoFixEligible = (
         isAllowedFixType(riskEvidence.proposedFix.type)
-        && riskAxes.every((axis) => levels[axis] <= autoFixMaxLevels[axis])
+        && levels.changeRisk <= autoFixMaxChangeRisk
+        && levels.uncertainty <= autoFixMaxUncertainty
+        && riskEvidence.severity.dataLossPossible.value === false
+        && riskEvidence.severity.securityArea.value === false
     );
 
     return {

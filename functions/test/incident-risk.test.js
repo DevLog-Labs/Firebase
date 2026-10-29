@@ -42,7 +42,7 @@ function riskEvidence(overrides = {}) {
             reproducible: true
         },
         proposedFix: {
-            type: "optionalDecoding",
+            type: "responseDefault",
             files: ["functions/src/todo/update.ts"],
             reversible: true
         },
@@ -124,7 +124,7 @@ const lowImpact = { affectedUsers: 3, isRegression: false };
     assert.deepStrictEqual(result.riskEvidence.evidence, []);
 }
 
-// 영향도가 낮고 심각도 플래그가 모두 꺼졌으며 수정 범위가 작고 확신 조건을 모두 충족하면 자동 수정 대상
+// 허용된 수정 유형이고 수정 범위가 작으며 확신 조건을 충족하고 데이터 손실과 보안 문제가 없으면 자동 수정 대상
 {
     const score = scoreRisk(riskEvidence(), lowImpact);
 
@@ -141,7 +141,7 @@ const lowImpact = { affectedUsers: 3, isRegression: false };
     assert.strictEqual(score.rubricVersion, rubricVersion);
 }
 
-// 알 수 없는 심각도 플래그는 최대 수준 2를 부여하고 자동 수정 대상에서 제외
+// 알 수 없는 심각도 플래그는 최대 수준 2를 부여하고, 데이터 손실이나 보안이 알 수 없으면 자동 수정 대상에서 제외
 {
     for (const name of flagNames) {
         const input = riskEvidence({
@@ -153,7 +153,11 @@ const lowImpact = { affectedUsers: 3, isRegression: false };
         const score = scoreRisk(input, lowImpact);
 
         assert.strictEqual(score.levels.severity, 2, name);
-        assert.strictEqual(score.autoFixEligible, false, name);
+        assert.strictEqual(
+            score.autoFixEligible,
+            name !== "dataLossPossible" && name !== "securityArea",
+            name
+        );
     }
 }
 
@@ -179,21 +183,21 @@ const lowImpact = { affectedUsers: 3, isRegression: false };
     assert.deepStrictEqual(levels, [0, 0, 1, 1, 2, 2, 3]);
 }
 
-// 회귀 이슈는 사용자 수가 적어도 영향도 수준이 2 이상이며 자동 수정 대상에서 제외
+// 회귀 이슈는 사용자 수가 적어도 영향도 수준이 2 이상이지만 영향도는 자동 수정 자격을 막지 않음
 {
     const score = scoreRisk(riskEvidence(), { affectedUsers: 1, isRegression: true });
 
     assert.strictEqual(score.levels.impact, 2);
-    assert.strictEqual(score.autoFixEligible, false);
+    assert.strictEqual(score.autoFixEligible, true);
 }
 
 // 민감 경로를 수정하거나 되돌리기 어려운 수정은 변경 위험 수준이 3
 {
     const sensitive = riskEvidence({
-        proposedFix: { type: "nilGuard", files: ["firestore.rules"], reversible: true }
+        proposedFix: { type: "nullGuard", files: ["firestore.rules"], reversible: true }
     });
     const irreversible = riskEvidence({
-        proposedFix: { type: "nilGuard", files: ["functions/src/todo/update.ts"], reversible: false }
+        proposedFix: { type: "nullGuard", files: ["functions/src/todo/update.ts"], reversible: false }
     });
 
     assert.strictEqual(scoreRisk(sensitive, lowImpact).levels.changeRisk, 3);
@@ -204,7 +208,7 @@ const lowImpact = { affectedUsers: 3, isRegression: false };
 {
     const withFiles = (count) => riskEvidence({
         proposedFix: {
-            type: "nilGuard",
+            type: "nullGuard",
             files: Array.from({ length: count }, (_, index) => `functions/src/file${index}.ts`),
             reversible: true
         }
@@ -269,6 +273,38 @@ const lowImpact = { affectedUsers: 3, isRegression: false };
 
     assert.strictEqual(scoreRisk(notAllowed, lowImpact).autoFixEligible, false);
     assert.strictEqual(scoreRisk(none, lowImpact).autoFixEligible, false);
+}
+
+// 영향도와 심각도가 높아도 수정이 작고 원인이 확인되며 데이터 손실과 보안 문제가 없으면 자동 수정 대상
+{
+    const input = riskEvidence({
+        severity: {
+            ...flags(false),
+            fatal: { value: true, evidenceIds: ["e1"] },
+            launchCrash: { value: true, evidenceIds: ["e1"] },
+            blocksCoreFlow: { value: true, evidenceIds: ["e1"] }
+        }
+    });
+    const score = scoreRisk(input, { affectedUsers: 500, isRegression: true });
+
+    assert.deepStrictEqual([score.levels.impact, score.levels.severity, score.grade], [3, 3, 3]);
+    assert.strictEqual(score.autoFixEligible, true);
+}
+
+// 데이터 손실이나 보안 문제가 있으면 자동 수정 대상에서 제외하고, 변경 위험이나 불확실성이 2 이상이어도 제외
+{
+    const withFlag = (name, value) => scoreRisk(
+        riskEvidence({ severity: { ...flags(false), [name]: { value, evidenceIds: ["e1"] } } }),
+        lowImpact
+    ).autoFixEligible;
+    const manyFiles = riskEvidence({
+        proposedFix: { type: "nullGuard", files: ["a.ts", "b.ts", "c.ts", "d.ts"], reversible: true }
+    });
+
+    assert.strictEqual(withFlag("dataLossPossible", true), false);
+    assert.strictEqual(withFlag("securityArea", true), false);
+    assert.strictEqual(scoreRisk(manyFiles, lowImpact).levels.changeRisk, 2);
+    assert.strictEqual(scoreRisk(manyFiles, lowImpact).autoFixEligible, false);
 }
 
 console.log("incident-risk.test.js passed");

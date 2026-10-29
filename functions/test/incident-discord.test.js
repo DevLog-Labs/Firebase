@@ -30,7 +30,7 @@ function riskEvidence(summary = "응답 필드 누락", quote = "keyNotFound") {
             reproducible: true
         },
         proposedFix: {
-            type: "optionalDecoding",
+            type: "responseDefault",
             files: ["functions/src/todo/update.ts"],
             reversible: true
         }

@@ -30,7 +30,7 @@ const analysis = {
         codeLocation: { file: "TodoMapper.swift", line: 42 },
         reproducible: true
     },
-    proposedFix: { type: "optionalDecoding", files: ["functions/src/todo/update.ts"], reversible: true }
+    proposedFix: { type: "responseDefault", files: ["functions/src/todo/update.ts"], reversible: true }
 };
 
 const context = {
