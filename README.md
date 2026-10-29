@@ -40,6 +40,56 @@ Staging Hosting에서는 `/api/todos/**`, `/api/web-pages/**`, `/api/push-notifi
 
 Cloud Run 배포와 직접 호출 검증은 [`docs/cloud-run-staging.md`](docs/cloud-run-staging.md), Firebase Hosting 분기 배포와 복구는 [`docs/firebase-hosting-staging.md`](docs/firebase-hosting-staging.md)에서 관리합니다.
 
+## Crashlytics 오류 분석과 자동 수정
+
+`sendDailyIncidentReport`는 매일 09:00(Asia/Seoul)에 전날 Crashlytics 오류를 분석해 Discord로 요약하고, 서버에서 간단히 고칠 수 있는 오류는 GitHub 이슈와 Draft PR로 이어 주는 Cloud Function입니다. 소스는 `functions/src/incident`에 있습니다.
+
+### 처리 흐름
+
+1. Crashlytics BigQuery 실시간 내보내기 테이블에서 신규, 급증, 회귀 오류를 이슈와 상태 코드 단위로 최대 10개 고릅니다.
+2. 스택, 이벤트, `api-v2` 서버 로그, GitHub에서 읽은 앱과 서버 코드 조각을 모으고 토큰, 이메일, IP를 마스킹합니다.
+3. 규칙으로 고칠 위치를 서버, iOS, 공동 중 하나로 정합니다. REST 응답이 없는 오류는 iOS로 분류합니다.
+4. OpenAI 모델이 판단마다 근거를 인용한 JSON을 내고, 코드가 인용한 원문을 검증한 뒤 위험도를 계산합니다. 알림 등급은 영향도와 심각도 중 큰 값입니다.
+5. 분석한 모든 오류를 Discord 요약으로 보냅니다. 등급 2 이상 상위 5건은 상세로, 나머지는 한 줄로 표시합니다.
+6. 자동 수정 자격이 있는 오류만 이 저장소에 `auto-fix` 라벨이 붙은 이슈로 만듭니다. 같은 오류의 열린 이슈가 있으면 댓글로 갱신합니다.
+7. `.github/workflows/auto-fix.yml`이 `auto-fix` 라벨이 붙은 이슈를 Codex로 수정하고 Draft PR을 올립니다. 머지는 사람이 합니다.
+
+자동 수정 자격이 없는 오류는 이슈를 만들지 않고 Discord 요약에서 끝납니다.
+
+### 자동 수정 자격
+
+다음 조건을 모두 만족해야 합니다.
+
+- 고칠 위치가 서버로 분류됨
+- 수정 유형이 `statusCodeMapping`, `inputValidation`, `nullGuard`, `exceptionHandling`, `errorResponse`, `responseDefault`, `timeoutRetry` 중 하나
+- 수정 파일이 모두 `functions/src`, `functions/test`, `nestjs-api/src`, `nestjs-api/test` 안에 있음
+- 변경 위험과 불확실성이 모두 1 이하
+- 데이터 손실과 보안 문제가 없다는 판단에 근거가 있음
+
+수정 워크플로는 변경이 300줄을 넘거나 `.github`, 인증 코드, 설정, 의존성 파일을 건드리면 PR을 만들지 않고 이슈에 사유를 댓글로 남깁니다. 같은 이름의 브랜치(`auto-fix/issue-<번호>`)가 이미 있으면 PR을 만들지 않습니다.
+
+### 필요한 설정
+
+| 이름 | 사용하는 곳 | 용도 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | Cloud Functions Secret, Actions secret | 분석 호출과 Codex 수정 |
+| `DISCORD_WEBHOOK_URL` | Cloud Functions Secret | 일일 요약 전송 |
+| `GH_AUTOMATION_TOKEN` | Cloud Functions Secret, Actions secret | 이슈 생성, 코드 읽기, 수정 브랜치와 PR 생성 |
+
+`GH_AUTOMATION_TOKEN`은 이 저장소의 Issues, Contents, Pull requests 쓰기와 iOS 저장소의 Contents 읽기 권한을 가진 fine-grained token을 사용합니다.
+
+함수 실행 서비스 계정에는 Crashlytics 데이터셋 조회, BigQuery 작업 실행, Cloud Logging 조회 권한이 필요합니다.
+
+### 수동 실행
+
+Cloud Scheduler 작업을 직접 실행해 하루 분량을 즉시 처리할 수 있습니다. 같은 날 연달아 실행하면 방금 만든 이슈가 목록 조회에 늦게 반영되어 같은 오류의 이슈가 중복으로 생길 수 있습니다.
+
+```bash
+gcloud scheduler jobs run firebase-schedule-sendDailyIncidentReport-asia-northeast3 \
+  --project <project-id> \
+  --location asia-northeast3
+```
+
 ## 환경 변수
 
 Firebase CLI의 `--project`로 staging 또는 prod Firebase project를 선택합니다. 각 project에 배포된 함수는 인자 없는 `getFirestore()`로 해당 project의 `(default)` database를 사용합니다.
