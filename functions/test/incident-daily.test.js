@@ -105,6 +105,13 @@ function completed(value) {
     };
 }
 
+// 허용된 수정 유형과 작은 수정 범위, 확인된 코드 위치와 재현 가능 여부를 갖춰 자동 수정 대상이 되는 분석 결과
+const fixable = {
+    ...analysis(),
+    rootCause: { ...analysis().rootCause, reproducible: true },
+    proposedFix: { type: "statusCodeMapping", files: ["nestjs-api/src/todos/todos.service.ts"], reversible: true }
+};
+
 const requests = [];
 let openAiHandler;
 let discordStatus = 204;
@@ -278,7 +285,7 @@ function discordMessages() {
         );
     }
 
-    // 분석한 모든 이슈 그룹을 GitHub 이슈로 만들고 Discord 요약은 그 뒤에 마지막으로 전송
+    // 자동 수정 대상인 서버 이슈 그룹만 GitHub 이슈로 만들고 Discord 요약은 그 뒤에 마지막으로 전송. 공동으로 분류된 그룹은 요약에서 끝냄
     {
         reset();
         bigQueryResponses = [
@@ -286,29 +293,41 @@ function discordMessages() {
             [sampleRow("ea")],
             [sampleRow("eb")]
         ];
-        openAiHandler = () => completed(analysis());
+        openAiHandler = () => completed(fixable);
 
         await sendDailyIncidentReport.run({});
 
         const githubIssues = requests.filter((request) => request.url === "https://api.github.com/repos/DevLog-Labs/Firebase/issues" && request.method === "post");
         const lastRequest = requests.at(-1);
 
-        assert.strictEqual(githubIssues.length, 2);
-        assert.ok(githubIssues.every((request) => request.data.labels.includes("crashlytics")));
+        assert.strictEqual(githubIssues.length, 1);
+        assert.deepStrictEqual(githubIssues[0].data.labels, ["crashlytics", "auto-fix"]);
         assert.ok(githubIssues.every((request) => request.headers.Authorization === "Bearer ghp_test"));
         assert.ok(githubIssues.every((request) => request.data.title.endsWith("오류를 조사한다")));
-        assert.ok(githubIssues.some((request) => request.data.body.includes("- 원인 위치: 서버") && request.data.labels.includes("area:server")));
-        assert.ok(githubIssues.some((request) => request.data.body.includes("- 원인 위치: 공동") && request.data.labels.includes("needs-triage")));
+        assert.ok(githubIssues[0].data.body.includes("- 원인 위치: 서버"));
+        assert.ok(!githubIssues.some((request) => request.data.body.includes("- 원인 위치: 공동")));
         assert.ok(lastRequest.url.startsWith("https://discord.com"));
         const [, counts] = infoLogs.find(([text]) => text === "이슈 동기화 완료");
-        assert.deepStrictEqual(counts, { created: 2, commented: 0, failed: 0 });
+        assert.deepStrictEqual(counts, { created: 1, commented: 0, failed: 0 });
+    }
+
+    // 자동 수정 대상이 없으면 GitHub 요청을 보내지 않고 요약만 전송
+    {
+        reset();
+        bigQueryResponses = [[groupRow("a", "503", 2)], [sampleRow("ea")]];
+        openAiHandler = () => completed(analysis());
+
+        await sendDailyIncidentReport.run({});
+
+        assert.strictEqual(requests.filter((request) => request.url.startsWith("https://api.github.com")).length, 0);
+        assert.strictEqual(discordMessages().length, 1);
     }
 
     // GitHub 조회가 실패해도 로그만 남기고 Discord 요약은 전송
     {
         reset();
         bigQueryResponses = [[groupRow("a", "503", 2)], [sampleRow("ea")]];
-        openAiHandler = () => completed(analysis());
+        openAiHandler = () => completed(fixable);
         githubListStatus = 500;
 
         await sendDailyIncidentReport.run({});
@@ -323,7 +342,7 @@ function discordMessages() {
     {
         reset();
         bigQueryResponses = [[groupRow("a", "503", 2)], [sampleRow("ea")]];
-        openAiHandler = () => completed(analysis());
+        openAiHandler = () => completed(fixable);
         process.env.GH_AUTOMATION_TOKEN = "";
 
         await sendDailyIncidentReport.run({});

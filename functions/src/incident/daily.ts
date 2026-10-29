@@ -85,11 +85,14 @@ async function analyzeGroups(date: string): Promise<AnalyzedGroup[]> {
     return analyzed;
 }
 
-// 분석한 모든 이슈 그룹을 GitHub 이슈로 만들거나 갱신. 토큰이 없거나 실패해도 요약 전송은 계속
+// 자동 수정 대상인 이슈 그룹만 GitHub 이슈로 만들거나 갱신. 그 밖의 오류는 요약 알림에서 끝냄. 토큰이 없거나 실패해도 요약 전송은 계속
 async function reportIssues(
     analyzed: AnalyzedGroup[],
     date: string
 ): Promise<void> {
+    const targets = analyzed.filter(({ item }) => item.score.autoFixEligible);
+    if (targets.length === 0) { return; }
+
     const token = ghAutomationTokenSecret.value();
     if (token === "") {
         logger.warn("GitHub 토큰이 없어 이슈를 만들지 않습니다.");
@@ -99,7 +102,7 @@ async function reportIssues(
     try {
         const results = await syncIncidentIssues(
             token,
-            analyzed.map(({ group, item }) => buildIncidentIssue(group, item, date))
+            targets.map(({ group, item }) => buildIncidentIssue(group, item, date))
         );
         logger.info("이슈 동기화 완료", {
             created: results.filter((result) => result.action === "created").length,

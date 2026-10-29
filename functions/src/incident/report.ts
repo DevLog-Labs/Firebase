@@ -1,17 +1,8 @@
 import { originLabel } from "./classify";
-import type { OriginKind } from "./classify";
 import type { ErrorGroup } from "./context";
 import type { SummaryItem } from "./discord";
-import {
-    areaLabels,
-    autoFixLabel,
-    incidentLabel,
-    triageLabel
-} from "./github";
-import type {
-    IncidentIssueDraft,
-    RepositoryName
-} from "./github";
+import { autoFixLabel, incidentLabel } from "./github";
+import type { IncidentIssueDraft } from "./github";
 import type { RiskAxis } from "./score";
 
 // 이슈 제목의 최대 글자 수
@@ -25,23 +16,7 @@ const axisLabels: Record<RiskAxis, string> = {
     uncertainty: "불확실성"
 };
 
-// 분류별 확인할 곳 안내
-const checkpoints: Record<OriginKind, string[]> = {
-    server: ["- 서버 코드와 `api-v2` 로그 확인"],
-    ios: ["- 앱 코드와 요청 처리 확인"],
-    shared: [
-        "- 서버: 응답 스키마와 상태 코드 확인",
-        "- iOS: 요청 내용과 모델 처리 확인",
-        "- 작업이 iOS 저장소에서 진행되어야 하면 이슈를 `DevLog-Labs/iOS`로 이전"
-    ]
-};
-
-// 고칠 위치 분류에 따라 이슈를 만들 저장소를 정함. 공동은 기본 저장소 하나에만 만듦
-export function issueRepository(kind: OriginKind): RepositoryName {
-    return kind === "ios" ? "iOS" : "Firebase";
-}
-
-// 이슈 그룹 하나의 분석 결과를 공개 저장소에 올려도 되는 최소 정보만 담은 이슈 초안으로 변환
+// 자동 수정 대상인 이슈 그룹 하나의 분석 결과를 공개 저장소에 올려도 되는 최소 정보만 담은 이슈 초안으로 변환
 export function buildIncidentIssue(
     group: ErrorGroup,
     item: SummaryItem,
@@ -81,7 +56,7 @@ export function buildIncidentIssue(
         "",
         "## 확인할 곳",
         "",
-        ...checkpoints[origin.kind],
+        "- 서버 코드와 `api-v2` 로그 확인",
         "",
         "## 완료 조건",
         "",
@@ -91,10 +66,9 @@ export function buildIncidentIssue(
 
     return {
         markerKey,
-        repository: issueRepository(origin.kind),
         title: truncate(`${item.title} 오류를 조사한다`),
         body,
-        labels: issueLabels(item),
+        labels: [incidentLabel, autoFixLabel],
         updateComment: [
             `### ${date} 갱신`,
             "",
@@ -106,17 +80,6 @@ export function buildIncidentIssue(
             riskEvidence.rootCause.summary
         ].join("\n")
     };
-}
-
-// 이슈에 붙일 라벨 목록 생성. 공동 이슈는 담당 확인 라벨을 붙이고, 자동 수정 라벨은 수정 워크플로가 있는 서버 이슈에만 붙임
-function issueLabels(item: SummaryItem): string[] {
-    const { kind } = item.origin;
-    return [
-        incidentLabel,
-        areaLabels[kind],
-        ...(kind === "shared" ? [triageLabel] : []),
-        ...(kind === "server" && item.score.autoFixEligible ? [autoFixLabel] : [])
-    ];
 }
 
 // 이슈 그룹이 선별된 사유 목록을 문자열로 변환
