@@ -36,7 +36,7 @@ assert.deepStrictEqual(
 );
 assert.deepStrictEqual(
     secretKeys(sendDailyIncidentReport),
-    ["DISCORD_WEBHOOK_URL", "OPENAI_API_KEY"]
+    ["DISCORD_WEBHOOK_URL", "GH_AUTOMATION_TOKEN", "OPENAI_API_KEY"]
 );
 assert.strictEqual(functionExports.sendDailyIncidentReport, sendDailyIncidentReport);
 assert.deepStrictEqual(secretKeys(removeTodoNotificationDocuments), []);

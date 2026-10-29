@@ -19,6 +19,8 @@ import {
     sendDiscordMessages
 } from "./discord";
 import type { SummaryItem } from "./discord";
+import { syncIncidentIssues } from "./github";
+import { buildIncidentIssue } from "./report";
 import type { RiskEvidence } from "./schema";
 import { scoreRisk } from "./score";
 import { verifyRiskEvidence } from "./verify";
@@ -31,6 +33,17 @@ const openAiApiKeySecret = defineSecret("OPENAI_API_KEY");
 // 일일 요약을 보내는 Discord 웹훅 주소
 const discordWebhookUrlSecret = defineSecret("DISCORD_WEBHOOK_URL");
 
+// GitHub 이슈를 만들고 갱신하는 토큰
+const ghAutomationTokenSecret = defineSecret("GH_AUTOMATION_TOKEN");
+
+// 분석을 마친 이슈 그룹과 요약 항목의 쌍
+type AnalyzedGroup = {
+    // 선별된 이슈 그룹
+    group: ErrorGroup;
+    // 그룹의 분석 결과를 담은 요약 항목
+    item: SummaryItem;
+};
+
 // 어제 신규, 급증, 회귀 이슈를 분석해 Discord 일일 요약으로 전송
 export const sendDailyIncidentReport = onSchedule({
         maxInstances: 1,
@@ -38,15 +51,19 @@ export const sendDailyIncidentReport = onSchedule({
         schedule: "0 9 * * *",
         timeZone: "Asia/Seoul",
         timeoutSeconds: 540,
-        secrets: [openAiApiKeySecret, discordWebhookUrlSecret]
+        secrets: [openAiApiKeySecret, discordWebhookUrlSecret, ghAutomationTokenSecret]
     },
     async () => {
         const webhookUrl = discordWebhookUrlSecret.value();
 
         try {
             const date = yesterdayInSeoul(new Date());
-            const items = await analyzeGroups(date);
-            await sendDiscordMessages(webhookUrl, buildDailySummary(items, date));
+            const analyzed = await analyzeGroups(date);
+            await reportIssues(analyzed, date);
+            await sendDiscordMessages(
+                webhookUrl,
+                buildDailySummary(analyzed.map(({ item }) => item), date)
+            );
         } catch (error) {
             logger.error("일일 오류 요약 생성 실패", toError(error));
             await notifyFailure(webhookUrl);
@@ -55,13 +72,39 @@ export const sendDailyIncidentReport = onSchedule({
 );
 
 // 대상 날짜의 이슈 그룹을 선별해 하나씩 순서대로 분석
-async function analyzeGroups(date: string): Promise<SummaryItem[]> {
+async function analyzeGroups(date: string): Promise<AnalyzedGroup[]> {
     const groups = await selectErrorGroups(date);
-    const items: SummaryItem[] = [];
+    const analyzed: AnalyzedGroup[] = [];
     for (const group of groups) {
-        items.push(await analyzeGroup(group, date));
+        analyzed.push({ group, item: await analyzeGroup(group, date) });
     }
-    return items;
+    return analyzed;
+}
+
+// 분석한 모든 이슈 그룹을 GitHub 이슈로 만들거나 갱신. 토큰이 없거나 실패해도 요약 전송은 계속
+async function reportIssues(
+    analyzed: AnalyzedGroup[],
+    date: string
+): Promise<void> {
+    const token = ghAutomationTokenSecret.value();
+    if (token === "") {
+        logger.warn("GitHub 토큰이 없어 이슈를 만들지 않습니다.");
+        return;
+    }
+
+    try {
+        const results = await syncIncidentIssues(
+            token,
+            analyzed.map(({ group, item }) => buildIncidentIssue(group, item, date))
+        );
+        logger.info("이슈 동기화 완료", {
+            created: results.filter((result) => result.action === "created").length,
+            commented: results.filter((result) => result.action === "commented").length,
+            failed: results.filter((result) => result.action === "failed").length
+        });
+    } catch (error) {
+        logger.error("이슈 동기화 실패", toError(error));
+    }
 }
 
 // 이슈 그룹 하나를 분석하고 근거 검증과 위험도 계산을 거쳐 요약 항목으로 변환. 분석에 실패하면 판단 불가 항목으로 대체

@@ -4,6 +4,7 @@ const axios = require("axios");
 process.env.GCLOUD_PROJECT = "devlog-test";
 process.env.OPENAI_API_KEY = "sk-test-key";
 process.env.DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1/secret-token";
+process.env.GH_AUTOMATION_TOKEN = "ghp_test";
 
 let bigQueryResponses = [];
 let bigQueryFailure;
@@ -107,9 +108,14 @@ function completed(value) {
 const requests = [];
 let openAiHandler;
 let discordStatus = 204;
+let githubListStatus = 200;
 axios.request = async (config) => {
     requests.push(config);
     if (config.url.startsWith("https://api.openai.com")) { return openAiHandler(config); }
+    if (config.url.startsWith("https://api.github.com")) {
+        if (config.method === "get") { return { status: githubListStatus, data: [] }; }
+        return { status: 201, data: { number: 50 + requests.length } };
+    }
     return { status: discordStatus, data: "" };
 };
 
@@ -119,6 +125,8 @@ function reset() {
     errorLogs.length = 0;
     bigQueryFailure = undefined;
     discordStatus = 204;
+    githubListStatus = 200;
+    process.env.GH_AUTOMATION_TOKEN = "ghp_test";
 }
 
 function discordMessages() {
@@ -268,6 +276,60 @@ function discordMessages() {
             errorLogs.map(([text]) => text),
             ["일일 오류 요약 생성 실패", "일일 오류 요약 실패 알림 전송 실패"]
         );
+    }
+
+    // 분석한 모든 이슈 그룹을 GitHub 이슈로 만들고 Discord 요약은 그 뒤에 마지막으로 전송
+    {
+        reset();
+        bigQueryResponses = [
+            [groupRow("a", "503", 2), groupRow("b", "404", 120)],
+            [sampleRow("ea")],
+            [sampleRow("eb")]
+        ];
+        openAiHandler = () => completed(analysis());
+
+        await sendDailyIncidentReport.run({});
+
+        const githubIssues = requests.filter((request) => request.url === "https://api.github.com/repos/DevLog-Labs/Firebase/issues" && request.method === "post");
+        const lastRequest = requests.at(-1);
+
+        assert.strictEqual(githubIssues.length, 2);
+        assert.ok(githubIssues.every((request) => request.data.labels.includes("crashlytics")));
+        assert.ok(githubIssues.every((request) => request.headers.Authorization === "Bearer ghp_test"));
+        assert.ok(githubIssues.every((request) => request.data.title.endsWith("오류를 조사한다")));
+        assert.ok(githubIssues.some((request) => request.data.body.includes("- 원인 위치: 서버") && request.data.labels.includes("area:server")));
+        assert.ok(githubIssues.some((request) => request.data.body.includes("- 원인 위치: 공동") && request.data.labels.includes("needs-triage")));
+        assert.ok(lastRequest.url.startsWith("https://discord.com"));
+        const [, counts] = infoLogs.find(([text]) => text === "이슈 동기화 완료");
+        assert.deepStrictEqual(counts, { created: 2, commented: 0, failed: 0 });
+    }
+
+    // GitHub 조회가 실패해도 로그만 남기고 Discord 요약은 전송
+    {
+        reset();
+        bigQueryResponses = [[groupRow("a", "503", 2)], [sampleRow("ea")]];
+        openAiHandler = () => completed(analysis());
+        githubListStatus = 500;
+
+        await sendDailyIncidentReport.run({});
+
+        assert.strictEqual(errorLogs.length, 1);
+        assert.strictEqual(errorLogs[0][0], "이슈 동기화 실패");
+        assert.strictEqual(discordMessages().length, 1);
+        assert.ok(discordMessages()[0].embeds.length > 0);
+    }
+
+    // GitHub 토큰이 없으면 이슈를 만들지 않고 요약만 전송
+    {
+        reset();
+        bigQueryResponses = [[groupRow("a", "503", 2)], [sampleRow("ea")]];
+        openAiHandler = () => completed(analysis());
+        process.env.GH_AUTOMATION_TOKEN = "";
+
+        await sendDailyIncidentReport.run({});
+
+        assert.strictEqual(requests.filter((request) => request.url.startsWith("https://api.github.com")).length, 0);
+        assert.strictEqual(discordMessages().length, 1);
     }
 
     console.log("incident-daily.test.js passed");
