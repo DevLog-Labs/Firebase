@@ -15,6 +15,7 @@ const { syncTodoNotificationCategory } = require("../lib/todo/update");
 const {
     cleanupDeletedUserFirestoreData
 } = require("../lib/user/delete");
+const { sendDailyIncidentReport } = require("../lib/incident/daily");
 const functionExports = require("../lib/index");
 
 const apiSecretKeys = [];
@@ -33,6 +34,11 @@ assert.deepStrictEqual(
     secretKeys(cleanupDeletedUserFirestoreData),
     githubSecretKeys
 );
+assert.deepStrictEqual(
+    secretKeys(sendDailyIncidentReport),
+    ["DISCORD_WEBHOOK_URL", "GH_AUTOMATION_TOKEN", "OPENAI_API_KEY"]
+);
+assert.strictEqual(functionExports.sendDailyIncidentReport, sendDailyIncidentReport);
 assert.deepStrictEqual(secretKeys(removeTodoNotificationDocuments), []);
 assert.deepStrictEqual(secretKeys(removeCompletedTodoNotificationRecords), []);
 assert.deepStrictEqual(secretKeys(syncTodoNotificationCategory), []);
