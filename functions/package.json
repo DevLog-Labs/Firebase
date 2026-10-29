@@ -4,7 +4,7 @@
     "build": "tsc",
     "build:watch": "tsc --watch",
     "test": "npm run build && npm run test:run",
-    "test:run": "node test/firebase-hosting.test.js && node test/rest-router.test.js && node test/rest-api.test.js && node test/function-secrets.test.js && node test/firestore-rules.test.js && node test/oauth-session.test.js && node test/oauth-cleanup.test.js && node test/github-auth.test.js && node test/github-configuration.test.js && node test/github-credential.test.js && node test/google-client.test.js && node test/google-credential.test.js && node test/todo-category-update.test.js && node test/scheduled-cleanup.test.js && node test/todo-reminder-schedule.test.js && node test/push-notification.test.js && node test/user-delete.test.js && node test/incident-risk.test.js && node test/incident-discord.test.js && node test/incident-mask.test.js && node test/incident-analyze.test.js",
+    "test:run": "node test/firebase-hosting.test.js && node test/rest-router.test.js && node test/rest-api.test.js && node test/function-secrets.test.js && node test/firestore-rules.test.js && node test/oauth-session.test.js && node test/oauth-cleanup.test.js && node test/github-auth.test.js && node test/github-configuration.test.js && node test/github-credential.test.js && node test/google-client.test.js && node test/google-credential.test.js && node test/todo-category-update.test.js && node test/scheduled-cleanup.test.js && node test/todo-reminder-schedule.test.js && node test/push-notification.test.js && node test/user-delete.test.js && node test/incident-risk.test.js && node test/incident-discord.test.js && node test/incident-mask.test.js && node test/incident-analyze.test.js && node test/incident-context.test.js",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
     "start": "npm run shell",
@@ -15,6 +15,8 @@
   },
   "main": "lib/index.js",
   "dependencies": {
+    "@google-cloud/bigquery": "^9.5.0",
+    "@google-cloud/logging": "^12.3.0",
     "@google-cloud/tasks": "^6.2.1",
     "axios": "^1.13.6",
     "firebase-admin": "^12.7.0",
