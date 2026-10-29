@@ -67,7 +67,10 @@ function sample(overrides = {}) {
             { key: "restStatusCode", value: "503" },
             { key: "restErrorMessage", value: "Service temporarily unavailable" }
         ]),
-        breadcrumbNames: JSON.stringify(["_vs", "screen_view"]),
+        breadcrumbs: JSON.stringify([
+            { name: "_vs", params: null },
+            { name: "screen_view", params: [{ key: "screen", value: "Home" }, { key: "from", value: "tab" }] }
+        ]),
         errorFrames: frames(
             { file: null, line: null, symbol: null, library: "ThirdParty" },
             { file: "FirebaseCrashlyticsHelper.swift", line: 32, symbol: "record(_:)", library: "Infra" },
@@ -156,7 +159,7 @@ function sample(overrides = {}) {
         assert.ok(context.sources.event[0].text.includes("time=2026-10-28T03:10:00.000Z app=1.6(1) os=26.7.1 model=iPhone17,1"));
         assert.ok(context.sources.event[0].text.includes("restStatusCode=503"));
         assert.ok(context.sources.event[0].text.includes("restErrorMessage=Service temporarily unavailable"));
-        assert.ok(context.sources.event[0].text.includes("breadcrumbs=_vs, screen_view"));
+        assert.ok(context.sources.event[0].text.includes("breadcrumbs=_vs, screen_view(screen=Home from=tab)"));
         assert.deepStrictEqual(
             { issueId: queries[0].params.issueId, status: queries[0].params.status },
             { issueId: "issue-1", status: "503" }
@@ -166,30 +169,72 @@ function sample(overrides = {}) {
     // 서버 로그: REST 오류면 대표 이벤트 시각 전후 2분과 상태 코드로 조회하고 메서드, 경로, 상태, 처리 시간만 남김
     {
         queryRows = [[sample()]];
-        logEntries = [{
-            metadata: {
-                insertId: "abc",
-                httpRequest: {
-                    requestMethod: "DELETE",
-                    requestUrl: "https://devlog-staging.web.app/api/todos/t1/deletion-request?token=secret",
-                    status: 503,
-                    latency: "0.2s"
+        logEntries = [
+            {
+                metadata: {
+                    insertId: "abc",
+                    httpRequest: {
+                        requestMethod: "DELETE",
+                        requestUrl: "https://devlog-staging.web.app/api/todos/t1/deletion-request?token=secret",
+                        status: 503,
+                        latency: "0.2s"
+                    }
                 }
+            },
+            {
+                metadata: { insertId: "err1", severity: "ERROR" },
+                data: { message: "TypeError: cannot read\n    at TodoService.remove" }
+            },
+            {
+                metadata: { insertId: "err2", severity: "CRITICAL" },
+                data: "x".repeat(900)
             }
-        }];
+        ];
         logEntryRequests.length = 0;
 
         const context = await buildAnalysisContext(group, "2026-10-28");
         const [request] = logEntryRequests;
 
         assert.ok(request.filter.includes('resource.labels.service_name="api-v2"'));
-        assert.ok(request.filter.includes("httpRequest.status=503"));
+        assert.ok(request.filter.includes("(httpRequest.status=503 OR severity>=ERROR)"));
         assert.ok(request.filter.includes('timestamp>="2026-10-28T03:08:00.000Z"'));
         assert.ok(request.filter.includes('timestamp<="2026-10-28T03:12:00.000Z"'));
-        assert.deepStrictEqual(context.sources.serverLog, [{
-            ref: "log-abc",
-            text: "DELETE /api/todos/t1/deletion-request status=503 latency=0.2s"
-        }]);
+        assert.deepStrictEqual(context.sources.serverLog.slice(0, 2), [
+            { ref: "log-abc", text: "DELETE /api/todos/t1/deletion-request status=503 latency=0.2s" },
+            { ref: "log-err1", text: "ERROR TypeError: cannot read at TodoService.remove" }
+        ]);
+        assert.strictEqual(context.sources.serverLog[2].ref, "log-err2");
+        assert.ok(context.sources.serverLog[2].text.startsWith("CRITICAL xxx"));
+        assert.ok(context.sources.serverLog[2].text.length <= "CRITICAL ".length + 500);
+    }
+
+    // 앱 버전과 OS 버전별 발생 분포를 이벤트 원문 한 건으로 추가하고 분포가 없으면 추가하지 않음
+    {
+        queries.length = 0;
+        queryRows = [
+            [sample()],
+            [
+                { appVersion: "1.6", osVersion: "26.7.1", events: "3", installs: "1" },
+                { appVersion: "1.5", osVersion: "18.6", events: "1", installs: "1" }
+            ]
+        ];
+        logEntries = [];
+
+        const context = await buildAnalysisContext(group, "2026-10-28");
+
+        assert.deepStrictEqual(context.sources.event[1], {
+            ref: "distribution",
+            text: "발생 분포\napp=1.6 os=26.7.1 events=3 installs=1\napp=1.5 os=18.6 events=1 installs=1"
+        });
+        assert.strictEqual(context.sources.event.length, 2);
+        assert.deepStrictEqual(
+            { issueId: queries[1].params.issueId, status: queries[1].params.status, rowLimit: queries[1].params.rowLimit },
+            { issueId: "issue-1", status: "503", rowLimit: 5 }
+        );
+
+        queryRows = [[sample()], []];
+        const withoutDistribution = await buildAnalysisContext(group, "2026-10-28");
+        assert.strictEqual(withoutDistribution.sources.event.length, 1);
     }
 
     // REST 오류가 아니면 서버 로그를 조회하지 않음

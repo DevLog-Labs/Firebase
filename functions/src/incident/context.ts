@@ -46,7 +46,13 @@ const sampleEventLimit = 3;
 const maxStackFrames = 15;
 
 // 서버 로그로 가져오는 최대 항목 수
-const maxServerLogs = 5;
+const maxServerLogs = 8;
+
+// 서버 에러 로그 메시지의 최대 글자 수
+const maxServerLogMessageLength = 500;
+
+// 발생 분포로 보여 주는 앱 버전과 OS 조합의 최대 개수
+const maxDistributionRows = 5;
 
 // 대표 이벤트 시각 앞뒤로 서버 로그를 찾는 범위(밀리초)
 const serverLogWindowMilliseconds = 2 * 60 * 1000;
@@ -114,7 +120,7 @@ SELECT
     operating_system.display_version AS osVersion,
     device.model AS deviceModel,
     TO_JSON_STRING(custom_keys) AS customKeys,
-    TO_JSON_STRING(ARRAY(SELECT b.name FROM UNNEST(breadcrumbs) b)) AS breadcrumbNames,
+    TO_JSON_STRING(ARRAY(SELECT AS STRUCT b.name, b.params FROM UNNEST(breadcrumbs) b)) AS breadcrumbs,
     TO_JSON_STRING(ARRAY(
         SELECT AS STRUCT f.file, f.line, f.symbol, f.library
         FROM UNNEST(errors[SAFE_OFFSET(0)].frames) f
@@ -134,6 +140,23 @@ WHERE event_timestamp >= @dayStart
     AND IFNULL((SELECT value FROM UNNEST(custom_keys) WHERE key = "restStatusCode"), "") = @status
 ORDER BY event_timestamp DESC
 LIMIT @sampleLimit
+`;
+
+// 이슈 그룹의 앱 버전과 OS 버전별 발생 분포를 조회하는 쿼리
+const selectDistributionQuery = `
+SELECT
+    application.display_version AS appVersion,
+    operating_system.display_version AS osVersion,
+    COUNT(*) AS events,
+    COUNT(DISTINCT installation_uuid) AS installs
+FROM \`${crashlyticsTable}\`
+WHERE event_timestamp >= @dayStart
+    AND event_timestamp < @dayEnd
+    AND issue_id = @issueId
+    AND IFNULL((SELECT value FROM UNNEST(custom_keys) WHERE key = "restStatusCode"), "") = @status
+GROUP BY appVersion, osVersion
+ORDER BY events DESC
+LIMIT @rowLimit
 `;
 
 // 일일 요약 대상으로 선별한 이슈 그룹 하나
@@ -172,8 +195,8 @@ type SampleEvent = {
     deviceModel: string;
     // custom key 목록을 직렬화한 JSON 문자열
     customKeys: string;
-    // breadcrumb 이름 목록을 직렬화한 JSON 문자열
-    breadcrumbNames: string;
+    // breadcrumb 이름과 파라미터 목록을 직렬화한 JSON 문자열
+    breadcrumbs: string;
     // 비치명 오류의 스택 프레임을 직렬화한 JSON 문자열
     errorFrames: string;
     // 예외의 스택 프레임을 직렬화한 JSON 문자열
@@ -194,10 +217,20 @@ type StackFrame = {
     library: string | null;
 };
 
+// breadcrumb 하나
+type Breadcrumb = {
+    // breadcrumb 이름
+    name: string;
+    // breadcrumb 파라미터 목록
+    params: { key: string; value: string }[] | null;
+};
+
 // 서버 로그 항목에서 사용하는 메타데이터
 type ServerLogMetadata = {
     // 로그 항목 고유 ID
     insertId?: string;
+    // 로그 심각도
+    severity?: string;
     // HTTP 요청 정보
     httpRequest?: {
         // 요청 메서드
@@ -283,7 +316,10 @@ export async function buildAnalysisContext(
             stack: stackSources(samples),
             serverLog: await serverLogSources(group, samples),
             code: [],
-            event: samples.map(eventSource)
+            event: [
+                ...samples.map(eventSource),
+                ...await distributionSources(group, date)
+            ]
         }
     };
 }
@@ -321,11 +357,43 @@ async function selectSamples(
         osVersion: String(row.osVersion ?? ""),
         deviceModel: String(row.deviceModel ?? ""),
         customKeys: String(row.customKeys ?? "[]"),
-        breadcrumbNames: String(row.breadcrumbNames ?? "[]"),
+        breadcrumbs: String(row.breadcrumbs ?? "[]"),
         errorFrames: String(row.errorFrames ?? "[]"),
         exceptionFrames: String(row.exceptionFrames ?? "[]"),
         crashFrames: String(row.crashFrames ?? "[]")
     }));
+}
+
+// 앱 버전과 OS 버전별 발생 분포를 한 건의 원문으로 변환. 발생이 없으면 빈 목록
+async function distributionSources(
+    group: ErrorGroup,
+    date: string
+): Promise<SourceText[]> {
+    const { dayStart, dayEnd } = dayWindow(date);
+    const [rows] = await new BigQuery().query({
+        query: selectDistributionQuery,
+        params: {
+            dayStart,
+            dayEnd,
+            issueId: group.issueId,
+            status: group.restStatusCode,
+            rowLimit: maxDistributionRows
+        }
+    });
+    const lines = (rows as Record<string, unknown>[]).map((row) => (
+        `app=${String(row.appVersion ?? "?")} os=${String(row.osVersion ?? "?")} events=${Number(row.events)} installs=${Number(row.installs)}`
+    ));
+    return lines.length === 0
+        ? []
+        : [{ ref: "distribution", text: ["발생 분포", ...lines].join("\n") }];
+}
+
+// breadcrumb 하나를 이름과 파라미터를 담은 문자열로 변환
+function breadcrumbText(breadcrumb: Breadcrumb): string {
+    const params = (breadcrumb.params ?? []).map(({ key, value }) => `${key}=${value}`);
+    return params.length === 0
+        ? breadcrumb.name
+        : `${breadcrumb.name}(${params.join(" ")})`;
 }
 
 // BigQuery 타임스탬프 값을 ISO 문자열로 변환
@@ -356,7 +424,9 @@ function stackSources(samples: SampleEvent[]): SourceText[] {
 function eventSource(sample: SampleEvent): SourceText {
     const customKeys = (JSON.parse(sample.customKeys) as { key: string; value: string }[])
         .map(({ key, value }) => `${key}=${value}`);
-    const breadcrumbs = (JSON.parse(sample.breadcrumbNames) as string[]).join(", ");
+    const breadcrumbs = (JSON.parse(sample.breadcrumbs) as Breadcrumb[])
+        .map(breadcrumbText)
+        .join(", ");
 
     return {
         ref: `event-${sample.eventId}`,
@@ -368,7 +438,7 @@ function eventSource(sample: SampleEvent): SourceText {
     };
 }
 
-// REST 오류일 때 가장 최근 이벤트 시각 전후의 서버 오류 로그를 상태 코드로 찾아 원문으로 변환
+// REST 오류일 때 가장 최근 이벤트 시각 전후의 서버 로그 중 상태 코드가 같은 요청 로그와 에러 심각도 로그를 원문으로 변환
 async function serverLogSources(
     group: ErrorGroup,
     samples: SampleEvent[]
@@ -382,7 +452,7 @@ async function serverLogSources(
     const filter = [
         'resource.type="cloud_run_revision"',
         `resource.labels.service_name="${serverLogServiceName}"`,
-        `httpRequest.status=${Number(group.restStatusCode)}`,
+        `(httpRequest.status=${Number(group.restStatusCode)} OR severity>=ERROR)`,
         `timestamp>="${from}"`,
         `timestamp<="${to}"`
     ].join(" AND ");
@@ -394,7 +464,8 @@ async function serverLogSources(
             pageSize: maxServerLogs
         });
         return entries.slice(0, maxServerLogs).map((entry) => serverLogSource(
-            entry.metadata as ServerLogMetadata
+            entry.metadata as ServerLogMetadata,
+            entry.data
         ));
     } catch (error) {
         logger.warn("서버 로그 조회에 실패해 서버 로그 없이 분석합니다.", {
@@ -405,13 +476,32 @@ async function serverLogSources(
     }
 }
 
-// 서버 로그 항목을 메서드, 경로, 상태, 처리 시간만 남긴 원문 한 건으로 변환
-function serverLogSource(metadata: ServerLogMetadata): SourceText {
+// 요청 로그는 메서드, 경로, 상태, 처리 시간만 남기고 앱 로그는 심각도와 메시지를 남긴 원문 한 건으로 변환
+function serverLogSource(
+    metadata: ServerLogMetadata,
+    data: unknown
+): SourceText {
+    const ref = `log-${metadata.insertId ?? "unknown"}`;
     const request = metadata.httpRequest;
+    if (request === undefined) {
+        return { ref, text: `${metadata.severity ?? "?"} ${payloadText(data)}` };
+    }
     return {
-        ref: `log-${metadata.insertId ?? "unknown"}`,
-        text: `${request?.requestMethod ?? "?"} ${pathOf(request?.requestUrl)} status=${request?.status ?? "?"} latency=${String(request?.latency ?? "?")}`
+        ref,
+        text: `${request.requestMethod ?? "?"} ${pathOf(request.requestUrl)} status=${request.status ?? "?"} latency=${String(request.latency ?? "?")}`
     };
+}
+
+// 로그 페이로드에서 메시지를 한 줄로 추출하고 최대 글자 수로 축약
+function payloadText(data: unknown): string {
+    const message = typeof data === "string"
+        ? data
+        : (data as { message?: unknown } | null)?.message;
+    const text = typeof message === "string" ? message : JSON.stringify(data ?? "");
+    const oneLine = text.replace(/\s+/g, " ").trim();
+    return oneLine.length <= maxServerLogMessageLength
+        ? oneLine
+        : `${oneLine.slice(0, maxServerLogMessageLength - 1)}…`;
 }
 
 // 요청 URL에서 쿼리 문자열을 제외한 경로 추출
