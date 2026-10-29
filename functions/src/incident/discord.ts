@@ -30,6 +30,9 @@ const maxEvidenceLines = 3;
 // 이슈별 embed로 자세히 보여 주는 최소 등급
 const detailedGradeMinimum = 2;
 
+// 이슈별 embed로 자세히 보여 주는 최대 개수. 나머지는 "그 외" 목록으로 넘겨 메시지 길이를 제한
+const maxDetailedEmbeds = 5;
+
 // 웹훅 요청을 시도하는 최대 횟수
 const maxRequestAttempts = 3;
 
@@ -108,12 +111,10 @@ export function buildDailySummary(
         right.score.grade - left.score.grade
         || right.metrics.affectedUsers - left.metrics.affectedUsers
     ));
-    const detailed = sorted.filter(
-        (item) => item.score.grade >= detailedGradeMinimum
-    );
-    const brief = sorted.filter(
-        (item) => item.score.grade < detailedGradeMinimum
-    );
+    const detailed = sorted
+        .filter((item) => item.score.grade >= detailedGradeMinimum)
+        .slice(0, maxDetailedEmbeds);
+    const brief = sorted.filter((item) => !detailed.includes(item));
 
     const embeds = detailed.map(detailEmbed);
     if (brief.length > 0) {

@@ -88,14 +88,18 @@ function totalLength(embed) {
     assert.ok(messages[0].content.includes("이슈가 없습니다"));
 }
 
-// embed가 10개를 넘으면 메시지를 나누고 본문은 첫 메시지에만 포함
+// 상세 embed는 높은 등급 상위 5개로 제한하고 나머지는 "그 외" 목록에 한 줄씩 담음
 {
-    const items = Array.from({ length: 12 }, (_, index) => item(`h${index}`, 100));
+    const items = Array.from({ length: 12 }, (_, index) => item(`h${index}`, 100 + index));
     const messages = buildDailySummary(items, "2026-10-28");
+    const { embeds } = messages[0];
 
-    assert.deepStrictEqual(messages.map((message) => message.embeds.length), [10, 2]);
-    assert.ok(messages[0].content);
-    assert.strictEqual(messages[1].content, undefined);
+    assert.strictEqual(messages.length, 1);
+    assert.strictEqual(embeds.length, 6);
+    assert.ok(embeds.slice(0, 5).every((embed) => embed.title.startsWith("등급 3")));
+    assert.strictEqual(embeds[5].title, "그 외 7건");
+    assert.strictEqual(embeds[5].description.split("\n").length, 7);
+    assert.ok(embeds[0].title.includes("h11"));
 }
 
 // 긴 원인 요약과 인용문은 잘라서 글자 수 상한을 지키고 메시지당 embed 전체 글자 수도 6000자를 넘지 않음
@@ -141,10 +145,10 @@ function totalLength(embed) {
                 calls.push(config);
                 return { status: 204, data: "" };
             };
-            const messages = buildDailySummary(
-                Array.from({ length: 12 }, (_, index) => item(`h${index}`, 100)),
-                "2026-10-28"
-            );
+            const messages = [
+                ...buildDailySummary([], "2026-10-27"),
+                ...buildDailySummary([], "2026-10-28")
+            ];
 
             await sendDiscordMessages(webhookUrl, messages);
 
