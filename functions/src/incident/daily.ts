@@ -4,6 +4,8 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { toError } from "../common/error";
 import { analyzeIssue } from "./analyze";
 import { classifyOrigin, originLayer } from "./classify";
+import { createCodeReader } from "./code";
+import type { CodeReader } from "./code";
 import type { Origin } from "./classify";
 import {
     buildAnalysisContext,
@@ -74,9 +76,11 @@ export const sendDailyIncidentReport = onSchedule({
 // 대상 날짜의 이슈 그룹을 선별해 하나씩 순서대로 분석
 async function analyzeGroups(date: string): Promise<AnalyzedGroup[]> {
     const groups = await selectErrorGroups(date);
+    const token = ghAutomationTokenSecret.value();
+    const codeReader = token === "" ? undefined : createCodeReader(token);
     const analyzed: AnalyzedGroup[] = [];
     for (const group of groups) {
-        analyzed.push({ group, item: await analyzeGroup(group, date) });
+        analyzed.push({ group, item: await analyzeGroup(group, date, codeReader) });
     }
     return analyzed;
 }
@@ -110,7 +114,8 @@ async function reportIssues(
 // 이슈 그룹 하나를 분석하고 근거 검증과 위험도 계산을 거쳐 요약 항목으로 변환. 분석에 실패하면 판단 불가 항목으로 대체
 async function analyzeGroup(
     group: ErrorGroup,
-    date: string
+    date: string,
+    codeReader: CodeReader | undefined
 ): Promise<SummaryItem> {
     const metrics = toImpactMetrics(group);
     const summary = {
@@ -129,7 +134,7 @@ async function analyzeGroup(
     });
 
     try {
-        const context = await buildAnalysisContext(group, date);
+        const context = await buildAnalysisContext(group, date, codeReader);
         origin = context.origin;
         const { riskEvidence, sources } = await analyzeIssue(
             openAiApiKeySecret.value(),

@@ -4,6 +4,8 @@ import * as logger from "firebase-functions/logger";
 import { getZonedParts } from "../common/date";
 import { toError } from "../common/error";
 import { classifyOrigin } from "./classify";
+import type { Origin } from "./classify";
+import type { CodeReader } from "./code";
 import type {
     AnalysisContext,
     SourceText
@@ -307,39 +309,63 @@ export function issueUrl(
 // 이슈 그룹의 대표 이벤트, 스택, 서버 로그를 모아 분석 입력 생성
 export async function buildAnalysisContext(
     group: ErrorGroup,
-    date: string
+    date: string,
+    codeReader?: CodeReader
 ): Promise<AnalysisContext> {
     const samples = await selectSamples(group, date);
     const serverLogs = await serverLogResult(group, samples);
     const latest = samples[0];
+    const origin = classifyOrigin({
+        restStatusCode: group.restStatusCode,
+        isFatal: group.isFatal,
+        customKeys: latest === undefined
+            ? []
+            : JSON.parse(latest.customKeys) as { key: string; value: string }[],
+        hasDeveloperFrame: latestFrames(samples).some((frame) => frame.owner === "DEVELOPER"),
+        serverLogs: {
+            queried: serverLogs.queried,
+            requestMatches: serverLogs.requestMatches,
+            errorLogs: serverLogs.errorLogs
+        }
+    });
 
     return {
         issueId: group.issueId,
         title: groupTitle(group),
         isFatal: group.isFatal,
-        origin: classifyOrigin({
-            restStatusCode: group.restStatusCode,
-            isFatal: group.isFatal,
-            customKeys: latest === undefined
-                ? []
-                : JSON.parse(latest.customKeys) as { key: string; value: string }[],
-            hasDeveloperFrame: latestFrames(samples).some((frame) => frame.owner === "DEVELOPER"),
-            serverLogs: {
-                queried: serverLogs.queried,
-                requestMatches: serverLogs.requestMatches,
-                errorLogs: serverLogs.errorLogs
-            }
-        }),
+        origin,
         sources: {
             stack: stackSources(samples),
             serverLog: serverLogs.sources,
-            code: [],
+            code: codeReader === undefined
+                ? []
+                : await codeSources(codeReader, origin, samples, serverLogs),
             event: [
                 ...samples.map(eventSource),
                 ...await distributionSources(group, date)
             ]
         }
     };
+}
+
+// 고칠 위치에 맞춰 앱 스택 프레임의 코드와 서버 요청 경로의 코드를 읽어 코드 원문으로 변환
+async function codeSources(
+    codeReader: CodeReader,
+    origin: Origin,
+    samples: SampleEvent[],
+    serverLogs: ServerLogResult
+): Promise<SourceText[]> {
+    const appFrames = latestFrames(samples)
+        .filter((frame) => frame.owner === "DEVELOPER" && frame.file !== null && frame.line !== null)
+        .map((frame) => ({ file: frame.file as string, line: frame.line as number }));
+    const requestPath = serverLogs.requestPaths[0];
+
+    return [
+        ...(origin.kind === "server" ? [] : await codeReader.readAppFrames(appFrames)),
+        ...(origin.kind === "ios" || requestPath === undefined
+            ? []
+            : await codeReader.readServerRoute(requestPath))
+    ];
 }
 
 // 날짜(YYYY-MM-DD)를 한국 시간 하루 구간의 시작과 끝 시각으로 변환
@@ -469,6 +495,8 @@ type ServerLogResult = {
     requestMatches: number;
     // 요청 로그가 아닌 에러 심각도 로그 개수
     errorLogs: number;
+    // 같은 상태 코드 요청 로그의 요청 경로 목록. 서버 코드를 찾는 데 사용
+    requestPaths: string[];
 };
 
 // REST 오류일 때 가장 최근 이벤트 시각 전후의 서버 로그 중 상태 코드가 같은 요청 로그와 에러 심각도 로그를 원문과 개수로 변환
@@ -477,7 +505,7 @@ async function serverLogResult(
     samples: SampleEvent[]
 ): Promise<ServerLogResult> {
     const latest = samples[0];
-    const none: ServerLogResult = { sources: [], queried: false, requestMatches: 0, errorLogs: 0 };
+    const none: ServerLogResult = { sources: [], queried: false, requestMatches: 0, errorLogs: 0, requestPaths: [] };
     if (group.restStatusCode === "" || latest === undefined) { return none; }
 
     const center = new Date(latest.eventTimestamp).getTime();
@@ -505,7 +533,11 @@ async function serverLogResult(
             requestMatches: metadata.filter(
                 (item) => item.httpRequest?.status === Number(group.restStatusCode)
             ).length,
-            errorLogs: metadata.filter((item) => item.httpRequest === undefined).length
+            errorLogs: metadata.filter((item) => item.httpRequest === undefined).length,
+            requestPaths: metadata
+                .filter((item) => item.httpRequest?.status === Number(group.restStatusCode))
+                .map((item) => pathOf(item.httpRequest?.requestUrl))
+                .filter((path) => path !== "?")
         };
     } catch (error) {
         logger.warn("서버 로그 조회에 실패해 서버 로그 없이 분석합니다.", {

@@ -340,5 +340,77 @@ function sample(overrides = {}) {
         assert.strictEqual((await buildAnalysisContext(fatalGroup, "2026-10-28")).origin.kind, "ios");
     }
 
+    // 코드 읽기: 앱 스택의 개발자 코드 프레임은 서버가 아닌 분류에서, 요청 경로는 iOS가 아닌 분류에서 읽음
+    {
+        const readerCalls = [];
+        const reader = {
+            readAppFrames: async (appFrames) => {
+                readerCalls.push(["app", appFrames]);
+                return [{ ref: "iOS:A.swift:7", text: "7| code" }];
+            },
+            readServerRoute: async (path) => {
+                readerCalls.push(["server", path]);
+                return [{ ref: "Firebase:todos.controller.ts:1-1", text: "1| route" }];
+            }
+        };
+        const withFrames = (overrides = {}) => sample({
+            errorFrames: frames(
+                { file: "Helper.swift", line: 1, symbol: "h", library: "ThirdParty", owner: "OTHER" },
+                { file: "A.swift", line: 7, symbol: "a", library: "Infra", owner: "DEVELOPER" },
+                { file: "B.swift", line: null, symbol: "b", library: "Infra", owner: "DEVELOPER" },
+                { file: null, line: 3, symbol: "c", library: "Infra", owner: "DEVELOPER" }
+            ),
+            ...overrides
+        });
+        const requestLog = (status) => ({
+            metadata: {
+                insertId: `r${status}`,
+                httpRequest: { requestMethod: "DELETE", requestUrl: "https://x/api/todos/t1/deletion-request?token=secret", status, latency: "1s" }
+            }
+        });
+
+        // 서버: 요청 경로로 서버 코드만 읽음
+        readerCalls.length = 0;
+        queryRows = [[withFrames()]];
+        logEntries = [requestLog(503)];
+        const server = await buildAnalysisContext(group, "2026-10-28", reader);
+
+        assert.deepStrictEqual(readerCalls, [["server", "/api/todos/t1/deletion-request"]]);
+        assert.deepStrictEqual(server.sources.code.map((item) => item.ref), ["Firebase:todos.controller.ts:1-1"]);
+
+        // 공동: 앱 코드와 서버 코드를 모두 읽고 앱 프레임은 파일과 줄이 있는 개발자 코드만 전달
+        readerCalls.length = 0;
+        queryRows = [[withFrames()]];
+        logEntries = [requestLog(404)];
+        const shared = await buildAnalysisContext({ ...group, restStatusCode: "404" }, "2026-10-28", reader);
+
+        assert.deepStrictEqual(readerCalls, [
+            ["app", [{ file: "A.swift", line: 7 }]],
+            ["server", "/api/todos/t1/deletion-request"]
+        ]);
+        assert.deepStrictEqual(shared.sources.code.map((item) => item.ref), ["iOS:A.swift:7", "Firebase:todos.controller.ts:1-1"]);
+
+        // iOS: 앱 코드만 읽음
+        readerCalls.length = 0;
+        queryRows = [[withFrames({ customKeys: "[]" })]];
+        logEntries = [];
+        const ios = await buildAnalysisContext({ ...group, restStatusCode: "" }, "2026-10-28", reader);
+
+        assert.deepStrictEqual(readerCalls.map((call) => call[0]), ["app"]);
+        assert.deepStrictEqual(ios.sources.code.map((item) => item.ref), ["iOS:A.swift:7"]);
+
+        // 공동이어도 요청 로그가 없으면 서버 코드는 읽지 않음
+        readerCalls.length = 0;
+        queryRows = [[withFrames()]];
+        logEntries = [];
+        await buildAnalysisContext({ ...group, restStatusCode: "404" }, "2026-10-28", reader);
+
+        assert.deepStrictEqual(readerCalls.map((call) => call[0]), ["app"]);
+
+        // 코드 읽기 객체가 없으면 코드 원문은 비어 있음
+        queryRows = [[withFrames()]];
+        assert.deepStrictEqual((await buildAnalysisContext(group, "2026-10-28")).sources.code, []);
+    }
+
     console.log("incident-context.test.js passed");
 })();
