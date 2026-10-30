@@ -132,7 +132,7 @@ jobs:
             - Use "npm --prefix nestjs-api" for every npm command. Never use --force. Never change dependencies or devDependencies.
             - First run "npm --prefix nestjs-api audit --omit=dev --omit=optional" to see the failure.
             - Try "npm --prefix nestjs-api audit fix --omit=dev --package-lock-only --ignore-scripts" for updates within the declared ranges.
-            - For vulnerabilities that remain, add or raise an exact version in "overrides". Use the lowest published version in the same major as the installed one that is outside every advisory range, and check that it exists with "npm view". Apply it with "npm --prefix nestjs-api install --package-lock-only --ignore-scripts".
+            - For vulnerabilities that remain, add or raise an exact version in "overrides". Use the lowest published version in the same major as the installed one that is outside every advisory range. For 0.x versions stay in the same minor, and for 0.0.x versions stay on the same patch. Check that it exists with "npm view". Apply it with "npm --prefix nestjs-api install --package-lock-only --ignore-scripts".
             - Run the audit again. If a vulnerability needs a major upgrade or has no fix, change nothing for it and say so in the summary.
             - If nothing can be fixed, change no file.
             - Write .audit-summary.md in Korean. Write every sentence as a noun phrase, for example 'multer overrides 2.5.0으로 상향'.
@@ -222,8 +222,11 @@ jobs:
           const before = (path) => JSON.parse(execSync(`git show HEAD:${path}`, { encoding: "utf8", maxBuffer: 1 << 28 }));
           const after = (path) => JSON.parse(fs.readFileSync(path, "utf8"));
           const major = (version) => {
-            const [first, second] = String(version).split(".");
-            return first === "0" ? `0.${second}` : first;
+            const [first, second, third] = String(version).split(".");
+            if (first !== "0") {
+              return first;
+            }
+            return second === "0" ? `0.0.${third}` : `0.${second}`;
           };
 
           const beforePackage = before("nestjs-api/package.json");
