@@ -19,7 +19,11 @@ env:
 jobs:
   audit:
     name: Audit
+    if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       failed: ${{ steps.audit.outputs.failed }}
       skip: ${{ steps.branch.outputs.skip }}
@@ -72,7 +76,12 @@ jobs:
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then
-            echo "::notice::이미 같은 브랜치가 있어 건너뜀: $FIX_BRANCH"
+            open="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$FIX_BRANCH" --state open --json number --jq length)"
+            if [ "$open" -eq 0 ]; then
+              echo "::error::열린 PR 없이 브랜치만 남아 있음: $FIX_BRANCH"
+              exit 1
+            fi
+            echo "::notice::열린 PR이 있어 건너뜀: $FIX_BRANCH"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           elif [ "$status" -eq 2 ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -130,7 +139,7 @@ jobs:
           claude_args: |
             --model claude-sonnet-5-5
             --max-turns 25
-            --allowedTools "Read,Edit,Write,Bash(npm --prefix nestjs-api audit:*),Bash(npm --prefix nestjs-api install:*),Bash(npm --prefix nestjs-api ls:*),Bash(npm view:*)"
+            --allowedTools "Read,Edit,Write,Bash(npm --prefix nestjs-api audit --omit=dev --omit=optional),Bash(npm --prefix nestjs-api audit fix --omit=dev --package-lock-only --ignore-scripts),Bash(npm --prefix nestjs-api install --package-lock-only --ignore-scripts),Bash(npm --prefix nestjs-api ls --package-lock-only),Bash(npm view:*)"
 
       - name: Create patch
         id: patch
@@ -157,6 +166,7 @@ jobs:
       - name: Fail without changes
         if: steps.patch.outputs.has_changes != 'true'
         run: |
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
           echo "::error::감사가 실패했지만 에이전트가 변경을 만들지 않음"
           exit 1
 
@@ -185,6 +195,9 @@ jobs:
           name: dependency-audit
           path: ${{ runner.temp }}/artifact
 
+      - name: Show agent summary
+        run: cat "$RUNNER_TEMP/artifact/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Check changed files
         run: |
           patch="$RUNNER_TEMP/artifact/changes.patch"
@@ -208,7 +221,10 @@ jobs:
           const failures = [];
           const before = (path) => JSON.parse(execSync(`git show HEAD:${path}`, { encoding: "utf8", maxBuffer: 1 << 28 }));
           const after = (path) => JSON.parse(fs.readFileSync(path, "utf8"));
-          const major = (version) => String(version).split(".")[0];
+          const major = (version) => {
+            const [first, second] = String(version).split(".");
+            return first === "0" ? `0.${second}` : first;
+          };
 
           const beforePackage = before("nestjs-api/package.json");
           const afterPackage = after("nestjs-api/package.json");
