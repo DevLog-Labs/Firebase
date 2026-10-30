@@ -2,7 +2,7 @@ name: Auto Fix
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
 
 concurrency:
   group: auto-fix-${{ github.event.issue.number }}
@@ -14,9 +14,7 @@ permissions:
 jobs:
   codex:
     name: Draft
-    if: >-
-      contains(github.event.issue.labels.*.name, 'auto-fix')
-      && (github.event.action == 'opened' || github.event.label.name == 'auto-fix')
+    if: github.event.label.name == 'auto-fix'
     runs-on: ubuntu-latest
     outputs:
       has_changes: ${{ steps.patch.outputs.has_changes }}
@@ -26,6 +24,20 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            functions/package-lock.json
+            nestjs-api/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix functions
+          npm ci --prefix nestjs-api
 
       - name: Write task
         env:
@@ -43,6 +55,7 @@ jobs:
             echo "- Edit only files under functions/src, functions/test, nestjs-api/src, or nestjs-api/test."
             echo "- Do not touch .github, firebase.json, firestore.rules, firestore.index.json, authentication code, or dependencies."
             echo "- Add or update a test that reproduces the problem when the change affects behavior."
+            echo "- Keep every change compatible with already released app versions: do not change the status code or fields of an existing successful response, and do not add retries to operations that are not idempotent."
             echo "- If the cause cannot be determined from the code, change nothing."
             echo "- End with a short summary in Korean. Write every sentence as a noun phrase, for example '재시도 처리 추가'."
             echo
