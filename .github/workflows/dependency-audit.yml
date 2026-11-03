@@ -2,8 +2,8 @@ name: Dependency Audit
 
 on:
   schedule:
-    # 한국 시간 09:00
-    - cron: "0 0 * * *"
+    # 한국 시간 매주 월요일 09:00
+    - cron: "0 0 * * 1"
   workflow_dispatch:
 
 concurrency:
