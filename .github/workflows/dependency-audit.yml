@@ -134,6 +134,7 @@ jobs:
           EOF
 
       - name: Run agent
+        timeout-minutes: 10
         uses: openai/codex-action@v1
         env:
           npm_config_ignore_scripts: "true"
