@@ -17,6 +17,7 @@ import { AppleAuthenticationModule } from './apple/apple-authentication.module';
 import { FirebaseAuthGuard } from './auth/firebase-auth.guard';
 import { ApiExceptionFilter } from './common/api-exception.filter';
 import { AppModule } from './app.module';
+import { DevelopmentGoalsModule } from './development-goals/development-goals.module';
 import { GOOGLE_AUTHENTICATION_CONFIGURATION_TOKEN } from './google/google-authentication.configuration';
 import { GitHubAuthenticationModule } from './github/github-authentication.module';
 import { GoogleAuthenticationModule } from './google/google-authentication.module';
@@ -95,6 +96,15 @@ describe(AppModule.name, () => {
     ) as unknown[];
 
     expect(imports).toContain(TodosModule);
+  });
+
+  it('DevelopmentGoalsModule을 애플리케이션에 연결한다', () => {
+    const imports = Reflect.getMetadata(
+      MODULE_METADATA.IMPORTS,
+      AppModule,
+    ) as unknown[];
+
+    expect(imports).toContain(DevelopmentGoalsModule);
   });
 
   it('AppleAuthenticationModule을 애플리케이션에 연결한다', () => {

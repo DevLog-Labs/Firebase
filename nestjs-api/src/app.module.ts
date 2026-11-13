@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AppleAuthenticationModule } from './apple/apple-authentication.module';
 import { FirebaseAuthGuard } from './auth/firebase-auth.guard';
 import { ApiExceptionFilter } from './common/api-exception.filter';
+import { DevelopmentGoalsModule } from './development-goals/development-goals.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { GitHubAuthenticationModule } from './github/github-authentication.module';
 import { GoogleAuthenticationModule } from './google/google-authentication.module';
@@ -14,6 +15,7 @@ import { TodosModule } from './todos/todos.module';
 @Module({
   imports: [
     AppleAuthenticationModule,
+    DevelopmentGoalsModule,
     FirebaseModule,
     GitHubAuthenticationModule,
     GoogleAuthenticationModule,
