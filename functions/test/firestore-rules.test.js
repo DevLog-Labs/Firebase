@@ -20,6 +20,7 @@ assert.ok(rules.includes("match /{collectionId}/{document=**} {"));
 assert.ok(rules.includes("collectionId != 'developmentGoals'"));
 assert.ok(!rules.includes("match /{document=**} {"));
 assert.ok(rules.includes("match /developmentGoals/{goalId} {"));
+assert.ok(rules.includes("request.resource.data.get('status', null) != 'completed'"));
 assert.ok(rules.includes("match /records/{recordId} {"));
 
 const versionBlock = rules.match(/match \/versions\/\{versionId\} \{[\s\S]*?\n\s*\}/)[0];
