@@ -1,6 +1,10 @@
 import axios from "axios";
 import * as logger from "firebase-functions/logger";
 import { toError } from "../common/error";
+import {
+    readIssueRecord,
+    writeIssueRecord
+} from "./record";
 
 // 이슈를 만드는 GitHub 저장소. 자동 수정 워크플로가 있는 저장소 하나에만 만듦
 const repository = "DevLog-Labs/Firebase";
@@ -76,8 +80,9 @@ async function syncDraft(
     draft: IncidentIssueDraft,
     openIssues: Map<string, number>
 ): Promise<IssueSyncResult> {
-    const existing = openIssues.get(draft.markerKey);
     try {
+        const existing = openIssues.get(draft.markerKey)
+            ?? await findRecordedOpenIssue(token, draft.markerKey);
         if (existing !== undefined) {
             await request(token, "post", `/repos/${repository}/issues/${existing}/comments`, {
                 body: draft.updateComment
@@ -90,10 +95,49 @@ async function syncDraft(
             body: draft.body,
             labels: draft.labels
         }) as { number: number };
+        await saveIssueRecord(draft.markerKey, created.number);
         return { markerKey: draft.markerKey, action: "created", number: created.number };
     } catch (error) {
         logger.error("이슈 생성 또는 갱신 실패", toError(error), { markerKey: draft.markerKey });
         return { markerKey: draft.markerKey, action: "failed", number: null };
+    }
+}
+
+// 목록에 아직 반영되지 않은 이슈를 찾으려고 기록된 이슈 번호를 조회해 열려 있을 때만 반환
+// 기록 조회가 실패하면 기록이 없는 것으로 처리
+async function findRecordedOpenIssue(
+    token: string,
+    markerKey: string
+): Promise<number | undefined> {
+    let recorded: number | undefined;
+    try {
+        recorded = await readIssueRecord(markerKey);
+    } catch (error) {
+        logger.warn("이슈 기록 조회 실패", toError(error), { markerKey });
+        return undefined;
+    }
+    if (recorded === undefined) { return undefined; }
+
+    const issue = await request(
+        token,
+        "get",
+        `/repos/${repository}/issues/${recorded}`,
+        undefined,
+        [404, 410]
+    ) as { state?: string };
+    return issue.state === "open" ? recorded : undefined;
+}
+
+// 새로 만든 이슈 번호를 기록
+// 기록이 실패해도 이슈 생성 결과는 유지하고 로그만 남김
+async function saveIssueRecord(
+    markerKey: string,
+    number: number
+): Promise<void> {
+    try {
+        await writeIssueRecord(markerKey, number);
+    } catch (error) {
+        logger.error("이슈 기록 저장 실패", toError(error), { markerKey, number });
     }
 }
 

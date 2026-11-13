@@ -2,8 +2,31 @@ const assert = require("assert");
 const axios = require("axios");
 
 const errorLogs = [];
+const warnLogs = [];
 require.cache[require.resolve("firebase-functions/logger")] = {
-    exports: { error: (...values) => errorLogs.push(values), warn() {}, info() {} }
+    exports: { error: (...values) => errorLogs.push(values), warn: (...values) => warnLogs.push(values), info() {} }
+};
+
+const records = new Map();
+let recordFailure;
+const firestore = require("firebase-admin/firestore");
+require.cache[require.resolve("firebase-admin/firestore")] = {
+    exports: {
+        ...firestore,
+        getFirestore: () => ({
+            doc: (path) => ({
+                async get() {
+                    if (recordFailure === "read") { throw new Error("read failed"); }
+                    const data = records.get(path);
+                    return { get: (field) => data?.[field] };
+                },
+                async set(data) {
+                    if (recordFailure === "write") { throw new Error("write failed"); }
+                    records.set(path, data);
+                }
+            })
+        })
+    }
 };
 
 const { syncIncidentIssues } = require("../lib/incident/github");
@@ -32,6 +55,7 @@ function draft(markerKey, labels = ["crashlytics"]) {
 
 const requests = [];
 let openIssues = [];
+let issueStates = {};
 let failures = {};
 axios.request = async (config) => {
     requests.push(config);
@@ -41,6 +65,11 @@ axios.request = async (config) => {
     if (override === "network") { throw new Error(`failed ${config.headers.Authorization}`); }
     if (override) { return { status: override, data: {} }; }
 
+    const single = /\/issues\/(\d+)$/.exec(path);
+    if (config.method === "get" && single !== null) {
+        const state = issueStates[single[1]];
+        return state === undefined ? { status: 404, data: {} } : { status: 200, data: { state } };
+    }
     if (config.method === "get") {
         return { status: 200, data: openIssues };
     }
@@ -51,8 +80,12 @@ axios.request = async (config) => {
 function reset() {
     requests.length = 0;
     errorLogs.length = 0;
+    warnLogs.length = 0;
     openIssues = [];
+    issueStates = {};
     failures = {};
+    records.clear();
+    recordFailure = undefined;
 }
 
 function calls(method, url) {
@@ -86,6 +119,62 @@ function calls(method, url) {
         assert.strictEqual(created.headers["User-Agent"], "DevLog-Firebase");
         assert.strictEqual(results[0].action, "created");
         assert.ok(results[0].number > 100);
+        assert.strictEqual(records.get("incidentIssues/a:503").number, results[0].number);
+    }
+
+    // 목록에 아직 반영되지 않았어도 기록된 이슈가 열려 있으면 댓글로 갱신하고 새로 만들지 않음
+    {
+        reset();
+        records.set("incidentIssues/a:503", { number: 7 });
+        issueStates["7"] = "open";
+
+        const results = await syncIncidentIssues(token, [draft("a:503")]);
+
+        assert.deepStrictEqual(results, [{ markerKey: "a:503", action: "commented", number: 7 }]);
+        assert.strictEqual(calls("post", `${firebaseUrl}/issues/7/comments`)[0].data.body, "갱신 a:503");
+        assert.strictEqual(calls("post", `${firebaseUrl}/issues`).length, 0);
+    }
+
+    // 기록된 이슈가 닫혔거나 삭제됐으면 새 이슈를 만들고 기록을 새 번호로 교체
+    {
+        reset();
+        records.set("incidentIssues/a:503", { number: 7 });
+        records.set("incidentIssues/b:500", { number: 8 });
+        issueStates["7"] = "closed";
+
+        const results = await syncIncidentIssues(token, [draft("a:503"), draft("b:500")]);
+
+        assert.deepStrictEqual(results.map((result) => result.action), ["created", "created"]);
+        assert.strictEqual(records.get("incidentIssues/a:503").number, results[0].number);
+        assert.strictEqual(records.get("incidentIssues/b:500").number, results[1].number);
+    }
+
+    // 기록된 이슈의 조회가 실패하면 중복을 피하려고 만들지 않고 실패로 기록
+    {
+        reset();
+        records.set("incidentIssues/a:503", { number: 7 });
+        failures["get /repos/DevLog-Labs/Firebase/issues/7"] = 500;
+
+        const results = await syncIncidentIssues(token, [draft("a:503")]);
+
+        assert.deepStrictEqual(results, [{ markerKey: "a:503", action: "failed", number: null }]);
+        assert.strictEqual(calls("post", `${firebaseUrl}/issues`).length, 0);
+    }
+
+    // 기록 조회가 실패하면 이슈를 만들고, 기록 저장이 실패해도 생성 결과를 유지
+    {
+        reset();
+        recordFailure = "read";
+        const read = await syncIncidentIssues(token, [draft("a:503")]);
+        assert.strictEqual(read[0].action, "created");
+        assert.strictEqual(warnLogs.length, 1);
+
+        reset();
+        recordFailure = "write";
+        const written = await syncIncidentIssues(token, [draft("a:503")]);
+        assert.strictEqual(written[0].action, "created");
+        assert.ok(written[0].number > 100);
+        assert.strictEqual(errorLogs.length, 1);
     }
 
     // 같은 식별 표식의 열린 이슈가 있으면 댓글로 갱신하고 풀 리퀘스트와 표식 없는 이슈는 무시

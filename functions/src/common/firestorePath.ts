@@ -8,7 +8,8 @@ export namespace FirestorePath {
         authCredentials = "authCredentials",
         providers = "providers",
         oauthSessions = "oauthSessions",
-        oauthTickets = "oauthTickets"
+        oauthTickets = "oauthTickets",
+        incidentIssues = "incidentIssues"
     }
 
     export enum UserDataDocument {
@@ -89,5 +90,10 @@ export namespace FirestorePath {
     // 지정한 OAuth ticket 문서 경로를 반환합니다.
     export function oauthTicket(ticket: string): string {
         return `${oauthTickets}/${ticket}`;
+    }
+
+    // Crashlytics 이슈 그룹 식별 키에 대응하는 서버 전용 GitHub 이슈 기록 문서 경로
+    export function incidentIssue(markerKey: string): string {
+        return `${Collection.incidentIssues}/${markerKey}`;
     }
 }
