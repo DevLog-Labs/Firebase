@@ -143,6 +143,12 @@ function discordMessages() {
 }
 
 (async () => {
+    // 겹친 호출이 같은 인스턴스에서 동시에 실행되지 않도록 한 번에 하나만 처리
+    {
+        assert.strictEqual(sendDailyIncidentReport.__endpoint.maxInstances, 1);
+        assert.strictEqual(sendDailyIncidentReport.__endpoint.concurrency, 1);
+    }
+
     // 분석 결과를 근거 검증과 위험도 계산을 거쳐 사용자 수 순서의 Discord 요약으로 전송하고, 분석 입력은 마스킹
     {
         reset();

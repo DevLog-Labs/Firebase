@@ -49,6 +49,7 @@ type AnalyzedGroup = {
 // 어제 신규, 급증, 회귀 이슈를 분석해 Discord 일일 요약으로 전송
 export const sendDailyIncidentReport = onSchedule({
         maxInstances: 1,
+        concurrency: 1,
         region: LOCATION,
         schedule: "0 9 * * *",
         timeZone: "Asia/Seoul",
