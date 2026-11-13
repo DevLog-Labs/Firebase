@@ -51,7 +51,7 @@ Cloud Run 배포와 직접 호출 검증은 [`docs/cloud-run-staging.md`](docs/c
 3. 규칙으로 고칠 위치를 서버, iOS, 공동 중 하나로 정합니다. REST 응답이 없는 오류는 iOS로 분류합니다.
 4. OpenAI 모델이 판단마다 근거를 인용한 JSON을 내고, 코드가 인용한 원문을 검증한 뒤 위험도를 계산합니다. 알림 등급은 영향도와 심각도 중 큰 값입니다.
 5. 분석한 모든 오류를 Discord 요약으로 보냅니다. 등급 2 이상 상위 5건은 상세로, 나머지는 한 줄로 표시합니다.
-6. 자동 수정 자격이 있는 오류만 이 저장소에 `auto-fix` 라벨이 붙은 이슈로 만듭니다. 같은 오류의 열린 이슈가 있으면 댓글로 갱신합니다. 새로 만든 이슈 번호는 Firestore `incidentIssues/{식별 키}`에 기록해, 목록 조회에 아직 반영되지 않은 이슈도 같은 오류의 이슈로 찾습니다.
+6. 자동 수정 자격이 있는 오류만 이 저장소에 `auto-fix` 라벨이 붙은 이슈로 만듭니다. 같은 오류의 열린 이슈가 있으면 댓글로 갱신합니다.
 7. `.github/workflows/auto-fix.yml`이 `auto-fix` 라벨이 붙은 이슈를 Codex로 수정하고 Draft PR을 올립니다. 머지는 사람이 합니다.
 
 자동 수정 자격이 없는 오류는 이슈를 만들지 않고 Discord 요약에서 끝납니다.
@@ -82,7 +82,7 @@ Cloud Run 배포와 직접 호출 검증은 [`docs/cloud-run-staging.md`](docs/c
 
 ### 수동 실행
 
-Cloud Scheduler 작업을 직접 실행해 하루 분량을 즉시 처리할 수 있습니다. 함수는 한 번에 하나만 실행하므로, 실행 중에 다시 실행하면 두 번째 요청은 잠시 대기한 뒤 실패합니다. 실행이 끝난 뒤 다시 실행하면 같은 오류는 새 이슈 없이 기존 이슈에 댓글로 갱신됩니다.
+Cloud Scheduler 작업을 직접 실행해 하루 분량을 즉시 처리할 수 있습니다. 함수는 한 번에 하나만 실행하므로, 실행 중에 다시 실행하면 두 번째 요청은 잠시 대기한 뒤 실패합니다. 같은 날 연달아 실행하면 방금 만든 이슈가 목록 조회에 늦게 반영되어 같은 오류의 이슈가 중복으로 생길 수 있습니다.
 
 ```bash
 gcloud scheduler jobs run firebase-schedule-sendDailyIncidentReport-asia-northeast3 \
@@ -96,7 +96,7 @@ gcloud scheduler jobs run firebase-schedule-sendDailyIncidentReport-asia-northea
 
 1. Cloud Scheduler 작업의 마지막 실행 상태가 성공인지 확인합니다.
 2. Discord에 요약이 왔는지 확인합니다. 대상 오류가 없는 날은 `신규·급증·회귀 이슈가 없습니다` 메시지만 옵니다. `일일 오류 요약을 만들지 못했습니다` 메시지가 오면 `일일 오류 요약 생성 실패` 로그를 확인합니다.
-3. Cloud Functions 로그에서 오류별 `이슈 분석 완료`와 `이슈 동기화 완료`의 `created`, `commented`, `failed` 수를 확인합니다. `이슈 기록 조회 실패`나 `이슈 기록 저장 실패`가 있으면 그 실행에서는 중복 방지 기록 없이 처리된 것입니다.
+3. Cloud Functions 로그에서 오류별 `이슈 분석 완료`와 `이슈 동기화 완료`의 `created`, `commented`, `failed` 수를 확인합니다.
 
 자동 수정은 다음 순서로 확인합니다.
 

@@ -38,19 +38,6 @@ require.cache[require.resolve("firebase-functions/logger")] = {
     }
 };
 
-const firestore = require("firebase-admin/firestore");
-require.cache[require.resolve("firebase-admin/firestore")] = {
-    exports: {
-        ...firestore,
-        getFirestore: () => ({
-            doc: () => ({
-                async get() { return { get: () => undefined }; },
-                async set() {}
-            })
-        })
-    }
-};
-
 const { sendDailyIncidentReport } = require("../lib/incident/daily");
 
 const flagNames = [
