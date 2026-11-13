@@ -9,7 +9,6 @@ import { GitHubAuthenticationModule } from './github/github-authentication.modul
 import { GoogleAuthenticationModule } from './google/google-authentication.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 import { TodosModule } from './todos/todos.module';
-import { WebPagesModule } from './web-pages/web-pages.module';
 
 /** 애플리케이션의 최상위 의존성 경계를 구성하는 모듈입니다. */
 @Module({
@@ -20,7 +19,6 @@ import { WebPagesModule } from './web-pages/web-pages.module';
     GoogleAuthenticationModule,
     PushNotificationsModule,
     TodosModule,
-    WebPagesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: FirebaseAuthGuard },
