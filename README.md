@@ -124,7 +124,10 @@ cd functions
 npm ci
 npm run build
 npm run test:run
+npm run test:rules
 ```
+
+`npm run test:rules`는 `firebase.test.json`의 Firestore emulator를 `demo-devlog` project로 띄워 `firestore.rules`의 허용·거부를 확인합니다. Firebase CLI와 Java가 필요합니다.
 
 ### NestJS API
 
