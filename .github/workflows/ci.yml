@@ -91,6 +91,22 @@ jobs:
           set -o pipefail
           npm run test:run 2>&1 | tee test.log
 
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools@15.24.0
+
+      - name: Test Firestore rules
+        shell: bash
+        working-directory: functions
+        run: |
+          set -o pipefail
+          npm run test:rules 2>&1 | tee -a test.log
+
       - name: Upload test log
         if: always()
         uses: actions/upload-artifact@v6

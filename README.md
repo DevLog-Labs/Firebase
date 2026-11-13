@@ -154,7 +154,10 @@ cd functions
 npm ci
 npm run build
 npm run test:run
+npm run test:rules
 ```
+
+`test` job은 `npm run test:rules` 실행 전에 Java 21과 버전을 고정한 Firebase CLI를 설치합니다.
 
 `nestjs-api` job은 다음 명령을 확인하고 실행 로그를 artifact로 보관합니다.
 
