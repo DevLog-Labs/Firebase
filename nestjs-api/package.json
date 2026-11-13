@@ -16,7 +16,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:emulator": "firebase emulators:exec --config ../firebase.test.json --project demo-devlog --only firestore \"jest --config ./test/jest-emulator.json --runInBand\""
   },
   "engines": {
     "node": "22.x"

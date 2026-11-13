@@ -138,8 +138,11 @@ npm run lint
 npm run build
 npm test -- --runInBand
 npm run test:e2e -- --runInBand
+npm run test:emulator
 npm run docker:build
 ```
+
+`npm run test:emulator`는 `firebase.test.json`의 Firestore emulator를 `demo-devlog` project로 띄워 개발 목표 완료 transaction을 확인합니다. Firebase CLI와 Java가 필요합니다.
 
 `functions/node_modules`, `functions/lib`, `nestjs-api/node_modules`, `nestjs-api/dist`는 로컬 생성물입니다. Git에는 포함하지 않습니다.
 
