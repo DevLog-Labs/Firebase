@@ -25,14 +25,12 @@ const {
     cleanupSoftDeletedNotifications
 } = require("../lib/notification/cleanup");
 const { compactSoftDeletedTodos } = require("../lib/todo/cleanup");
-const { cleanupSoftDeletedWebPages } = require("../lib/webPage/cleanup");
 
 (async () => {
     const schedulers = [
         cleanupSoftDeletedNotifications,
         cleanupNotificationDispatches,
-        compactSoftDeletedTodos,
-        cleanupSoftDeletedWebPages
+        compactSoftDeletedTodos
     ];
 
     for (const scheduler of schedulers) {

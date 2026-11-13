@@ -16,3 +16,13 @@ assert.ok(rules.includes("function userDataWriteAllowed(userId)"));
 assert.ok(rules.includes("documents/authCredentials/$(userId)"));
 assert.ok(rules.includes("data.deletionStartedAt == null"));
 assert.ok(rules.includes("userDataWriteAllowed(userId)"));
+assert.ok(rules.includes("match /{collectionId}/{document=**} {"));
+assert.ok(rules.includes("collectionId != 'developmentGoals'"));
+assert.ok(!rules.includes("match /{document=**} {"));
+assert.ok(rules.includes("match /developmentGoals/{goalId} {"));
+assert.ok(rules.includes("match /records/{recordId} {"));
+
+const versionBlock = rules.match(/match \/versions\/\{versionId\} \{[\s\S]*?\n\s*\}/)[0];
+
+assert.ok(versionBlock.includes("allow create:"));
+assert.ok(!/\b(update|delete|write)\b/.test(versionBlock));

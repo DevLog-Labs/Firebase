@@ -33,10 +33,6 @@ import {
 } from "./notification/cleanup";
 
 import {
-    cleanupSoftDeletedWebPages
-} from "./webPage/cleanup";
-
-import {
     sendDailyIncidentReport
 } from "./incident/daily";
 
@@ -71,7 +67,6 @@ export {
     removeCompletedTodoNotificationRecords,
     removeTodoNotificationDocuments,
     cleanupSoftDeletedNotifications,
-    cleanupSoftDeletedWebPages,
     sendDailyIncidentReport,
     syncTodoNotificationCategory,
     api

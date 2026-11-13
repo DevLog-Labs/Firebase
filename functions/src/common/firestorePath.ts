@@ -5,7 +5,6 @@ export namespace FirestorePath {
         todoLists = "todoLists",
         notifications = "notifications",
         notificationDispatches = "notificationDispatches",
-        webPages = "webPages",
         authCredentials = "authCredentials",
         providers = "providers",
         oauthSessions = "oauthSessions",
@@ -54,14 +53,6 @@ export namespace FirestorePath {
 
     export function notificationDispatch(userId: string, dispatchId: string): string {
         return `${notificationDispatches(userId)}/${dispatchId}`;
-    }
-
-    export function webPages(userId: string): string {
-        return `${user(userId)}/${Collection.webPages}`;
-    }
-
-    export function webPage(userId: string, documentId: string): string {
-        return `${webPages(userId)}/${documentId}`;
     }
 
     // 지정한 사용자의 서버 전용 인증 자격 증명 루트 경로를 반환합니다.

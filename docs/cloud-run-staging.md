@@ -164,11 +164,10 @@ region, runtime 및 build service account, Secret 연결 이름과 version 참�
 
 ## 직접 호출 검증
 
-검증 뒤 폐기할 수 있는 Staging Todo, WebPage와 PushNotification ID를 준비합니다. 각 문서는 삭제 요청 전 활성 상태여야 합니다. Firebase ID Token은 화면, shell history, 명령 인자에 남기지 않습니다.
+검증 뒤 폐기할 수 있는 Staging Todo와 PushNotification ID를 준비합니다. 각 문서는 삭제 요청 전 활성 상태여야 합니다. Firebase ID Token은 화면, shell history, 명령 인자에 남기지 않습니다.
 
 ```bash
 read -r -p "Staging Todo ID: " TODO_ID
-read -r -p "Staging WebPage ID: " WEB_PAGE_ID
 read -r -p "Staging PushNotification ID: " PUSH_NOTIFICATION_ID
 read -r -s -p "Firebase ID Token: " FIREBASE_ID_TOKEN
 printf '\n'
@@ -259,16 +258,6 @@ curl -i -X DELETE \
 
 curl -i -X POST \
 	-H @- \
-	"${SERVICE_URL}/api/web-pages/${WEB_PAGE_ID}/deletion-request" \
-	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
-
-curl -i -X DELETE \
-	-H @- \
-	"${SERVICE_URL}/api/web-pages/${WEB_PAGE_ID}/deletion-request" \
-	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
-
-curl -i -X POST \
-	-H @- \
 	"${SERVICE_URL}/api/push-notifications/${PUSH_NOTIFICATION_ID}/deletion-request" \
 	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
 
@@ -277,7 +266,7 @@ curl -i -X DELETE \
 	"${SERVICE_URL}/api/push-notifications/${PUSH_NOTIFICATION_ID}/deletion-request" \
 	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
 
-unset FIREBASE_ID_TOKEN TODO_ID WEB_PAGE_ID PUSH_NOTIFICATION_ID SERVICE_URL
+unset FIREBASE_ID_TOKEN TODO_ID PUSH_NOTIFICATION_ID SERVICE_URL
 ```
 
 응답을 다음 순서로 확인합니다.
@@ -297,9 +286,8 @@ unset FIREBASE_ID_TOKEN TODO_ID WEB_PAGE_ID PUSH_NOTIFICATION_ID SERVICE_URL
 13. Token이 없는 GitHub access-token `DELETE`: `401`, `unauthenticated`
 14. Token이 없는 Todo `POST`: `401`
 15. Token이 있는 Todo `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-16. Token이 있는 WebPage `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-17. Token이 있는 PushNotification `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-18. 각 `DELETE` 뒤 Todo와 연결 알림, WebPage 및 PushNotification의 삭제 상태 복구
+16. Token이 있는 PushNotification `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
+17. 각 `DELETE` 뒤 Todo와 연결 알림 및 PushNotification의 삭제 상태 복구
 
 유효한 Firebase ID Token과 일회용 인증 값이 필요한 Google custom token, account-link, account-link 해제, access-token 폐기와 Apple challenge, custom token, account-link, account-link 해제, access-token 갱신·폐기 및 refresh-token 성공 경로, GitHub 로그인·계정 연결·연결 해제·grant 폐기 성공 경로는 Staging 앱에서 별도로 확인합니다. Token과 인증 코드는 로그와 shell history에 남기지 않습니다.
 
@@ -344,7 +332,7 @@ gcloud run services update api-v2 \
 	--invoker-iam-check
 ```
 
-Token이 없는 요청이 `403`이면 Cloud Run 공개 설정이 적용되지 않은 상태입니다. 원인을 수정한 뒤 배포 명령을 다시 실행해 공개 설정을 적용하고 직접 호출 검증 전체를 반복합니다. 인증된 `POST` 성공 뒤 `DELETE`가 실패한 첫 배포는 수정본을 다시 배포한 뒤 실패한 경로의 `DELETE`부터 실행합니다. 이후 배포에서는 해당 API를 지원하는 이전 revision으로 복구한 뒤 같은 `DELETE`를 실행합니다. Todo와 연결 알림, WebPage 및 PushNotification의 삭제 상태가 복구됐는지 확인한 뒤 직접 호출 검증을 다시 수행합니다.
+Token이 없는 요청이 `403`이면 Cloud Run 공개 설정이 적용되지 않은 상태입니다. 원인을 수정한 뒤 배포 명령을 다시 실행해 공개 설정을 적용하고 직접 호출 검증 전체를 반복합니다. 인증된 `POST` 성공 뒤 `DELETE`가 실패한 첫 배포는 수정본을 다시 배포한 뒤 실패한 경로의 `DELETE`부터 실행합니다. 이후 배포에서는 해당 API를 지원하는 이전 revision으로 복구한 뒤 같은 `DELETE`를 실행합니다. Todo와 연결 알림 및 PushNotification의 삭제 상태가 복구됐는지 확인한 뒤 직접 호출 검증을 다시 수행합니다.
 
 ## revision 복구
 
