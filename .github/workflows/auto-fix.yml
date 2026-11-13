@@ -12,10 +12,45 @@ permissions:
   contents: read
 
 jobs:
-  codex:
-    name: Draft
+  prepare:
+    name: Prepare
     if: github.event.label.name == 'auto-fix'
     runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.branch.outputs.branch }}
+      skip: ${{ steps.branch.outputs.skip }}
+
+    steps:
+      - name: Check existing fix
+        id: branch
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTOMATION_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          marker="$(printf '%s' "$ISSUE_BODY" | sed -nE 's/.*<!-- crashlytics:([^ ]+) -->.*/\1/p' | head -n 1)"
+          if [ -n "$marker" ]; then
+            branch="auto-fix/crashlytics-$(printf '%s' "$marker" | tr -c 'A-Za-z0-9_-' '-')"
+          else
+            branch="auto-fix/issue-${ISSUE_NUMBER}"
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" > /dev/null 2>&1; then
+            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state all --json url --jq '.[0].url // empty')"
+            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --body "같은 오류의 자동 수정 브랜치 \`$branch\`가 이미 있어 수정 초안을 만들지 않음${pr:+ ($pr)}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  codex:
+    name: Draft
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
+    # Ubuntu 26.04에서 codex-action의 drop-sudo가 실패해 24.04 고정 (openai/codex-action#188)
+    runs-on: ubuntu-24.04
     outputs:
       has_changes: ${{ steps.patch.outputs.has_changes }}
 
@@ -38,6 +73,11 @@ jobs:
         run: |
           npm ci --prefix functions
           npm ci --prefix nestjs-api
+
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
 
       - name: Write task
         env:
@@ -100,7 +140,9 @@ jobs:
 
   open_pr:
     name: Pull Request
-    needs: codex
+    needs:
+      - prepare
+      - codex
     if: needs.codex.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
 
@@ -140,13 +182,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_AUTOMATION_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          BRANCH: ${{ needs.prepare.outputs.branch }}
         run: |
-          branch="auto-fix/issue-${ISSUE_NUMBER}"
-          if git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
-            echo "이미 같은 브랜치가 있어 건너뜀: $branch"
-            exit 0
-          fi
-
+          branch="$BRANCH"
           login="$(gh api user --jq .login)"
           id="$(gh api user --jq .id)"
           git config user.name "$login"
@@ -155,7 +193,15 @@ jobs:
           git checkout -b "$branch"
           git apply --index "$RUNNER_TEMP/artifact/changes.patch"
           git commit -m "fix: Crashlytics 이슈 #${ISSUE_NUMBER} 대응"
-          git push origin "$branch"
+          if ! git push origin "$branch"; then
+            if ! git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
+              exit 1
+            fi
+            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state all --json url --jq '.[0].url // empty')"
+            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --body "같은 오류의 자동 수정 브랜치 \`$branch\`가 먼저 만들어져 PR을 만들지 않음${pr:+ ($pr)}"
+            exit 0
+          fi
 
           summary="$(head -c 1500 "$RUNNER_TEMP/artifact/summary.md")"
           {

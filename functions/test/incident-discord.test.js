@@ -90,6 +90,27 @@ function totalLength(embed) {
     assert.ok(messages[0].content.includes("이슈가 없습니다"));
 }
 
+// 신규·급증·회귀가 없어도 미해결 오류는 마지막 embed에 한 줄씩 담고 본문에 개수를 표시
+{
+    const ongoing = [
+        { title: "a[b](c)", url: "https://github.com/DevLog-Labs/Firebase/issues/7", affectedUsers: 4, events: 11 },
+        { title: "d · 500", url: "https://github.com/DevLog-Labs/Firebase/issues/8", affectedUsers: 1, events: 2 }
+    ];
+    const messages = buildDailySummary([item("x", 1)], "2026-10-28", ongoing);
+    const embeds = messages[0].embeds;
+
+    assert.strictEqual(messages[0].content, "2026-10-28 오류 요약 · 신규·급증·회귀 1건 · 미해결 2건");
+    assert.strictEqual(embeds.at(-1).title, "미해결 2건");
+    assert.strictEqual(
+        embeds.at(-1).description,
+        "• [ab(c)](https://github.com/DevLog-Labs/Firebase/issues/7) · 4명 · 11건\n• [d · 500](https://github.com/DevLog-Labs/Firebase/issues/8) · 1명 · 2건"
+    );
+
+    const onlyOngoing = buildDailySummary([], "2026-10-28", ongoing);
+    assert.ok(onlyOngoing[0].content.endsWith("이슈가 없습니다 · 미해결 2건"));
+    assert.deepStrictEqual(onlyOngoing[0].embeds.map((embed) => embed.title), ["미해결 2건"]);
+}
+
 // 상세 embed는 높은 등급 상위 5개로 제한하고 나머지는 "그 외" 목록에 한 줄씩 담음
 {
     const items = Array.from({ length: 12 }, (_, index) => item(`h${index}`, 100 + index));

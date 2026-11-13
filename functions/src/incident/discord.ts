@@ -44,6 +44,9 @@ const maxRetryAfterSeconds = 10;
 // 등급별 embed 색상
 const gradeColors = [0x95a5a6, 0xf1c40f, 0xe67e22, 0xc0392b];
 
+// 미해결 목록 embed 색상
+const ongoingColor = 0x3498db;
+
 // 축 이름별 표시 이름
 const axisLabels: Record<RiskAxis, string> = {
     impact: "영향도",
@@ -68,6 +71,18 @@ export type SummaryItem = {
     score: RiskScore;
     // 영향도 계산에 쓴 이슈 집계값
     metrics: ImpactMetrics;
+};
+
+// 일일 요약에 올리는 미해결 이슈 하나
+export type OngoingItem = {
+    // 요약에 보여 줄 오류 제목
+    title: string;
+    // 추적 중인 GitHub 이슈 주소
+    url: string;
+    // 대상 날짜에 오류를 겪은 고유 설치 수
+    affectedUsers: number;
+    // 대상 날짜 발생 건수
+    events: number;
 };
 
 // Discord embed 필드 하나
@@ -107,9 +122,11 @@ export type DiscordMessage = {
 };
 
 // 이슈 목록을 등급 순으로 정렬해 Discord 일일 요약 메시지 목록으로 변환
+// 열린 이슈로 추적 중인 미해결 오류는 마지막 embed에 한 줄씩 추가
 export function buildDailySummary(
     items: SummaryItem[],
-    dateLabel: string
+    dateLabel: string,
+    ongoing: OngoingItem[] = []
 ): DiscordMessage[] {
     const sorted = [...items].sort((left, right) => (
         right.score.grade - left.score.grade
@@ -124,8 +141,11 @@ export function buildDailySummary(
     if (brief.length > 0) {
         embeds.push(briefEmbed(brief));
     }
+    if (ongoing.length > 0) {
+        embeds.push(ongoingEmbed(ongoing));
+    }
 
-    return splitMessages(headerContent(dateLabel, sorted.length), embeds);
+    return splitMessages(headerContent(dateLabel, sorted.length, ongoing.length), embeds);
 }
 
 // 메시지 목록을 순서대로 웹훅에 전송
@@ -141,11 +161,13 @@ export async function sendDiscordMessages(
 // 요약 첫 메시지의 본문 생성
 function headerContent(
     dateLabel: string,
-    total: number
+    total: number,
+    ongoing: number
 ): string {
-    return total === 0
+    const detected = total === 0
         ? `${dateLabel} 오류 요약 · 신규·급증·회귀 이슈가 없습니다`
         : `${dateLabel} 오류 요약 · 신규·급증·회귀 ${total}건`;
+    return ongoing === 0 ? detected : `${detected} · 미해결 ${ongoing}건`;
 }
 
 // 등급이 높은 이슈 하나의 상세 embed 생성
@@ -196,25 +218,43 @@ function detailEmbed(item: SummaryItem): DiscordEmbed {
 
 // 등급이 낮은 이슈들을 한 줄씩 담은 embed 생성
 function briefEmbed(items: SummaryItem[]): DiscordEmbed {
-    const lines: string[] = [];
-    let length = 0;
-    for (const item of items) {
-        const line = `• [${plainTitle(item.title)}](${item.url}) · 등급 ${item.score.grade} · ${item.metrics.affectedUsers}명`;
-        if (length + line.length + 1 > maxDescriptionLength) {
-            lines.push(`…외 ${items.length - lines.length}건`);
-            break;
-        }
-        lines.push(line);
-        length += line.length + 1;
-    }
-
     return {
         title: `그 외 ${items.length}건`,
-        description: lines.join("\n"),
+        description: limitedLines(items.map((item) => (
+            `• [${plainTitle(item.title)}](${item.url}) · 등급 ${item.score.grade} · ${item.metrics.affectedUsers}명`
+        ))),
         color: gradeColors[items[0].score.grade],
         fields: [],
         footer: { text: `루브릭 ${items[0].score.rubricVersion}` }
     };
+}
+
+// 열린 이슈로 추적 중인 미해결 오류를 한 줄씩 담은 embed 생성
+function ongoingEmbed(items: OngoingItem[]): DiscordEmbed {
+    return {
+        title: `미해결 ${items.length}건`,
+        description: limitedLines(items.map((item) => (
+            `• [${plainTitle(item.title)}](${item.url}) · ${item.affectedUsers}명 · ${item.events}건`
+        ))),
+        color: ongoingColor,
+        fields: [],
+        footer: { text: "열린 GitHub 이슈 기준" }
+    };
+}
+
+// 설명 최대 글자 수 안에 들어가는 줄까지만 담고 나머지는 남은 개수로 표시
+function limitedLines(lines: string[]): string {
+    const kept: string[] = [];
+    let length = 0;
+    for (const line of lines) {
+        if (length + line.length + 1 > maxDescriptionLength) {
+            kept.push(`…외 ${lines.length - kept.length}건`);
+            break;
+        }
+        kept.push(line);
+        length += line.length + 1;
+    }
+    return kept.join("\n");
 }
 
 // 검증된 근거를 최대 개수만큼 한 줄씩 정리

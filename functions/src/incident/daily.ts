@@ -12,6 +12,7 @@ import {
     groupTitle,
     issueUrl,
     selectErrorGroups,
+    selectOccurrences,
     toImpactMetrics,
     yesterdayInSeoul
 } from "./context";
@@ -20,9 +21,21 @@ import {
     buildDailySummary,
     sendDiscordMessages
 } from "./discord";
-import type { SummaryItem } from "./discord";
-import { syncIncidentIssues } from "./github";
-import { buildIncidentIssue } from "./report";
+import type {
+    OngoingItem,
+    SummaryItem
+} from "./discord";
+import {
+    commentOnIssue,
+    githubIssueUrl,
+    listOpenIncidentIssues,
+    syncIncidentIssues
+} from "./github";
+import {
+    buildIncidentIssue,
+    buildOngoingComment,
+    incidentMarkerKey
+} from "./report";
 import type { RiskEvidence } from "./schema";
 import { scoreRisk } from "./score";
 import { verifyRiskEvidence } from "./verify";
@@ -49,6 +62,7 @@ type AnalyzedGroup = {
 // 어제 신규, 급증, 회귀 이슈를 분석해 Discord 일일 요약으로 전송
 export const sendDailyIncidentReport = onSchedule({
         maxInstances: 1,
+        concurrency: 1,
         region: LOCATION,
         schedule: "0 9 * * *",
         timeZone: "Asia/Seoul",
@@ -61,10 +75,11 @@ export const sendDailyIncidentReport = onSchedule({
         try {
             const date = yesterdayInSeoul(new Date());
             const analyzed = await analyzeGroups(date);
-            await reportIssues(analyzed, date);
+            const synced = await reportIssues(analyzed, date);
+            const ongoing = await reportOngoingIssues(analyzed, synced, date);
             await sendDiscordMessages(
                 webhookUrl,
-                buildDailySummary(analyzed.map(({ item }) => item), date)
+                buildDailySummary(analyzed.map(({ item }) => item), date, ongoing)
             );
         } catch (error) {
             logger.error("일일 오류 요약 생성 실패", toError(error));
@@ -86,17 +101,19 @@ async function analyzeGroups(date: string): Promise<AnalyzedGroup[]> {
 }
 
 // 자동 수정 대상인 이슈 그룹만 GitHub 이슈로 만들거나 갱신. 그 밖의 오류는 요약 알림에서 끝냄. 토큰이 없거나 실패해도 요약 전송은 계속
+// 이슈를 만들거나 댓글을 남긴 이슈 그룹의 식별 키 반환
 async function reportIssues(
     analyzed: AnalyzedGroup[],
     date: string
-): Promise<void> {
+): Promise<Set<string>> {
+    const synced = new Set<string>();
     const targets = analyzed.filter(({ item }) => item.score.autoFixEligible);
-    if (targets.length === 0) { return; }
+    if (targets.length === 0) { return synced; }
 
     const token = ghAutomationTokenSecret.value();
     if (token === "") {
         logger.warn("GitHub 토큰이 없어 이슈를 만들지 않습니다.");
-        return;
+        return synced;
     }
 
     try {
@@ -109,8 +126,59 @@ async function reportIssues(
             commented: results.filter((result) => result.action === "commented").length,
             failed: results.filter((result) => result.action === "failed").length
         });
+        for (const result of results) {
+            if (result.action !== "failed") { synced.add(result.markerKey); }
+        }
     } catch (error) {
         logger.error("이슈 동기화 실패", toError(error));
+    }
+    return synced;
+}
+
+// 열린 이슈가 있는 오류 중 그날 이슈 댓글이 남지 않은 오류의 대상 날짜 발생량을 이슈 댓글로 남김
+// 신규·급증·회귀로 분석되지 않은 오류만 요약의 미해결 항목으로 반환
+// 해결되지 않은 오류를 매일 보고하려는 목적이며 재분석은 하지 않음
+// 토큰이 없거나 조회가 실패해도 요약 전송은 계속
+async function reportOngoingIssues(
+    analyzed: AnalyzedGroup[],
+    synced: Set<string>,
+    date: string
+): Promise<OngoingItem[]> {
+    const token = ghAutomationTokenSecret.value();
+    if (token === "") { return []; }
+
+    try {
+        const analyzedKeys = new Set(analyzed.map(({ group }) => incidentMarkerKey(group)));
+        const openIssues = await listOpenIncidentIssues(token);
+        const trackedIssueIds = [...openIssues.keys()]
+            .filter((markerKey) => !synced.has(markerKey))
+            .map((markerKey) => markerKey.split(":")[0]);
+        const occurrences = await selectOccurrences(date, [...new Set(trackedIssueIds)]);
+
+        const items: OngoingItem[] = [];
+        for (const occurrence of occurrences) {
+            const markerKey = incidentMarkerKey(occurrence);
+            const number = openIssues.get(markerKey);
+            if (number === undefined || synced.has(markerKey)) { continue; }
+
+            try {
+                await commentOnIssue(token, number, buildOngoingComment(occurrence, date));
+            } catch (error) {
+                logger.error("미해결 이슈 댓글 실패", toError(error), { number });
+            }
+            if (analyzedKeys.has(markerKey)) { continue; }
+            items.push({
+                title: groupTitle(occurrence),
+                url: githubIssueUrl(number),
+                affectedUsers: occurrence.affectedUsers,
+                events: occurrence.events
+            });
+        }
+        logger.info("미해결 이슈 갱신 완료", { count: items.length });
+        return items;
+    } catch (error) {
+        logger.error("미해결 이슈 조회 실패", toError(error));
+        return [];
     }
 }
 

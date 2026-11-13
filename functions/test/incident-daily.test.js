@@ -8,10 +8,16 @@ process.env.GH_AUTOMATION_TOKEN = "ghp_test";
 
 let bigQueryResponses = [];
 let bigQueryFailure;
+let occurrenceRows = [];
+const occurrenceQueries = [];
 class FakeBigQuery {
     async query(options) {
         if (bigQueryFailure) { throw bigQueryFailure; }
         if (options.query.includes("AS installs")) { return [[]]; }
+        if (options.query.includes("@issueIds")) {
+            occurrenceQueries.push(options.params);
+            return [occurrenceRows];
+        }
         return [bigQueryResponses.shift() ?? []];
     }
 }
@@ -116,11 +122,12 @@ const requests = [];
 let openAiHandler;
 let discordStatus = 204;
 let githubListStatus = 200;
+let githubOpenIssues = [];
 axios.request = async (config) => {
     requests.push(config);
     if (config.url.startsWith("https://api.openai.com")) { return openAiHandler(config); }
     if (config.url.startsWith("https://api.github.com")) {
-        if (config.method === "get") { return { status: githubListStatus, data: [] }; }
+        if (config.method === "get") { return { status: githubListStatus, data: githubOpenIssues }; }
         return { status: 201, data: { number: 50 + requests.length } };
     }
     return { status: discordStatus, data: "" };
@@ -133,6 +140,9 @@ function reset() {
     bigQueryFailure = undefined;
     discordStatus = 204;
     githubListStatus = 200;
+    githubOpenIssues = [];
+    occurrenceRows = [];
+    occurrenceQueries.length = 0;
     process.env.GH_AUTOMATION_TOKEN = "ghp_test";
 }
 
@@ -143,6 +153,12 @@ function discordMessages() {
 }
 
 (async () => {
+    // 겹친 호출이 같은 인스턴스에서 동시에 실행되지 않도록 한 번에 하나만 처리
+    {
+        assert.strictEqual(sendDailyIncidentReport.__endpoint.maxInstances, 1);
+        assert.strictEqual(sendDailyIncidentReport.__endpoint.concurrency, 1);
+    }
+
     // 분석 결과를 근거 검증과 위험도 계산을 거쳐 사용자 수 순서의 Discord 요약으로 전송하고, 분석 입력은 마스킹
     {
         reset();
@@ -311,7 +327,7 @@ function discordMessages() {
         assert.deepStrictEqual(counts, { created: 1, commented: 0, failed: 0 });
     }
 
-    // 자동 수정 대상이 없으면 GitHub 요청을 보내지 않고 요약만 전송
+    // 자동 수정 대상이 없으면 이슈를 만들지 않고 미해결 확인을 위한 열린 이슈 조회만 수행
     {
         reset();
         bigQueryResponses = [[groupRow("a", "503", 2)], [sampleRow("ea")]];
@@ -319,8 +335,61 @@ function discordMessages() {
 
         await sendDailyIncidentReport.run({});
 
-        assert.strictEqual(requests.filter((request) => request.url.startsWith("https://api.github.com")).length, 0);
+        const githubRequests = requests.filter((request) => request.url.startsWith("https://api.github.com"));
+        assert.deepStrictEqual(githubRequests.map((request) => request.method), ["get"]);
+        assert.strictEqual(occurrenceQueries.length, 0);
         assert.strictEqual(discordMessages().length, 1);
+    }
+
+    // 열린 이슈가 있는 오류는 신규·급증·회귀가 아니어도 전날 발생량을 이슈 댓글과 요약의 미해결 항목으로 보고
+    {
+        reset();
+        bigQueryResponses = [[groupRow("a", "503", 2)], [sampleRow("ea")]];
+        openAiHandler = () => completed(analysis());
+        githubOpenIssues = [
+            { number: 7, body: "<!-- crashlytics:b:500 -->\n본문" },
+            { number: 8, body: "<!-- crashlytics:a:503 -->\n본문" },
+            { number: 9, body: "<!-- crashlytics:c:404 -->\n본문" }
+        ];
+        occurrenceRows = [
+            { issueId: "b", restStatusCode: "500", issueSubtitle: "DevLogInfra.Service.opb (1)", affectedUsers: 4, events: 11 },
+            { issueId: "b", restStatusCode: "404", issueSubtitle: "DevLogInfra.Service.opb (1)", affectedUsers: 1, events: 1 }
+        ];
+
+        await sendDailyIncidentReport.run({});
+
+        assert.deepStrictEqual(occurrenceQueries[0].issueIds, ["b", "a", "c"]);
+        const comments = requests.filter((request) => request.method === "post" && request.url.endsWith("/comments"));
+        assert.deepStrictEqual(comments.map((request) => request.url), ["https://api.github.com/repos/DevLog-Labs/Firebase/issues/7/comments"]);
+        assert.match(comments[0].data.body, /^### \d{4}-\d{2}-\d{2} 미해결\n/);
+        assert.ok(comments[0].data.body.includes("- 영향 사용자: 4명"));
+        assert.ok(comments[0].data.body.includes("- 발생 건수: 11건"));
+
+        const [message] = discordMessages();
+        const ongoing = message.embeds.find((embed) => embed.title === "미해결 1건");
+        assert.ok(ongoing.description.includes("(https://github.com/DevLog-Labs/Firebase/issues/7) · 4명 · 11건"));
+        assert.ok(message.content.endsWith("· 미해결 1건"));
+    }
+
+    // 열린 이슈가 있는 오류가 다시 선별됐지만 자동 수정 대상이 아니면 이슈에는 미해결 댓글을 남기고 요약에는 분석 항목으로만 표시
+    {
+        reset();
+        bigQueryResponses = [[groupRow("a", "503", 2)], [sampleRow("ea")]];
+        openAiHandler = () => completed(analysis());
+        githubOpenIssues = [{ number: 8, body: "<!-- crashlytics:a:503 -->\n본문" }];
+        occurrenceRows = [
+            { issueId: "a", restStatusCode: "503", issueSubtitle: "DevLogInfra.Service.opa (1)", affectedUsers: 2, events: 3 }
+        ];
+
+        await sendDailyIncidentReport.run({});
+
+        assert.deepStrictEqual(occurrenceQueries[0].issueIds, ["a"]);
+        const comments = requests.filter((request) => request.method === "post" && request.url.endsWith("/comments"));
+        assert.deepStrictEqual(comments.map((request) => request.url), ["https://api.github.com/repos/DevLog-Labs/Firebase/issues/8/comments"]);
+
+        const [message] = discordMessages();
+        assert.ok(!message.embeds.some((embed) => embed.title.startsWith("미해결")));
+        assert.ok(!message.content.includes("미해결"));
     }
 
     // GitHub 조회가 실패해도 로그만 남기고 Discord 요약은 전송
@@ -332,8 +401,7 @@ function discordMessages() {
 
         await sendDailyIncidentReport.run({});
 
-        assert.strictEqual(errorLogs.length, 1);
-        assert.strictEqual(errorLogs[0][0], "이슈 동기화 실패");
+        assert.deepStrictEqual(errorLogs.map(([text]) => text), ["이슈 동기화 실패", "미해결 이슈 조회 실패"]);
         assert.strictEqual(discordMessages().length, 1);
         assert.ok(discordMessages()[0].embeds.length > 0);
     }
