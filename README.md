@@ -17,7 +17,7 @@ DevLog의 Firebase Cloud Functions와 Firestore index 설정을 관리하는 저
 ```mermaid
 flowchart LR
 	Client["API Client"] --> Hosting["Firebase Hosting"]
-	Hosting -->|"/api/todos/**<br/>/api/push-notifications/**<br/>/api/auth/google/**<br/>/api/auth/apple/**<br/>/api/auth/github/**"| CloudRun["Cloud Run<br/>api-v2"]
+	Hosting -->|"/api/todos/**<br/>/api/push-notifications/**<br/>/api/auth/google/**<br/>/api/auth/apple/**<br/>/api/auth/github/**<br/>/api/goals/**"| CloudRun["Cloud Run<br/>api-v2"]
 	Hosting -->|"나머지 /api/**"| Functions["Cloud Functions<br/>api"]
 	CloudRun --> Auth["Firebase Auth"]
 	Functions --> Auth
@@ -28,17 +28,17 @@ flowchart LR
 | 실행 구성 | 소스 | 책임 |
 | --- | --- | --- |
 | Firebase Hosting | `firebase.json` | 공개 요청 진입점과 경로별 rewrite 순서 관리 |
-| Cloud Run `api-v2` | `nestjs-api` | Todo, PushNotification 요청의 Firebase ID Token 검증과 삭제, Google·Apple·GitHub 인증 관리 |
+| Cloud Run `api-v2` | `nestjs-api` | Todo, PushNotification 요청의 Firebase ID Token 검증과 삭제, 개발 목표 완료 판정, Google·Apple·GitHub 인증 관리 |
 | Cloud Functions `api` | `functions` | Staging의 나머지 `/api/**` 요청에 대한 `404` 응답 경계 유지 |
 | Cloud Functions 개별 함수 | `functions` | trigger, Scheduler, Cloud Tasks, FCM 처리 |
 | Firebase Auth | — | 인증이 필요한 경로에 전달된 Bearer token 검증 |
 | Firestore | — | 검증된 사용자 UID 범위의 공통 데이터 저장 |
 
-Staging Hosting에서는 `/api/todos/**`, `/api/push-notifications/**`, `/api/auth/google/**`, `/api/auth/apple/**`, `/api/auth/github/**`를 Cloud Run `api-v2`가 우선 처리합니다. 나머지 `/api/**`는 Functions `api`가 `404` 응답 경계를 유지합니다.
+Staging Hosting에서는 `/api/todos/**`, `/api/push-notifications/**`, `/api/auth/google/**`, `/api/auth/apple/**`, `/api/auth/github/**`, `/api/goals/**`를 Cloud Run `api-v2`가 우선 처리합니다. 나머지 `/api/**`는 Functions `api`가 `404` 응답 경계를 유지합니다.
 
 기존 Functions를 한 번에 교체하지 않고 요청 계약을 유지하면서 경로 단위로 NestJS API에 이전하는 구조입니다. 최종적으로 Cloud Functions `api`가 담당하는 HTTP API 전체를 Cloud Run 기반 `api-v2`로 이전하는 것을 목표로 합니다.
 
-Cloud Run 배포와 직접 호출 검증은 [`docs/cloud-run-staging.md`](docs/cloud-run-staging.md), Firebase Hosting 분기 배포와 복구는 [`docs/firebase-hosting-staging.md`](docs/firebase-hosting-staging.md)에서 관리합니다.
+Cloud Run 배포와 직접 호출 검증은 [`docs/cloud-run-staging.md`](docs/cloud-run-staging.md), Firebase Hosting 분기 배포와 복구는 [`docs/firebase-hosting-staging.md`](docs/firebase-hosting-staging.md), Firestore rules 배포와 복구는 [`docs/firestore-rules-staging.md`](docs/firestore-rules-staging.md)에서 관리합니다.
 
 ## Crashlytics 오류 분석과 자동 수정
 

@@ -266,6 +266,14 @@ curl -i -X DELETE \
 	"${SERVICE_URL}/api/push-notifications/${PUSH_NOTIFICATION_ID}/deletion-request" \
 	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
 
+curl -i -X POST \
+	"${SERVICE_URL}/api/goals/route-check/complete"
+
+curl -i -X POST \
+	-H @- \
+	"${SERVICE_URL}/api/goals/route-check/complete" \
+	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
+
 unset FIREBASE_ID_TOKEN TODO_ID PUSH_NOTIFICATION_ID SERVICE_URL
 ```
 
@@ -287,9 +295,11 @@ unset FIREBASE_ID_TOKEN TODO_ID PUSH_NOTIFICATION_ID SERVICE_URL
 14. Token이 없는 Todo `POST`: `401`
 15. Token이 있는 Todo `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
 16. Token이 있는 PushNotification `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-17. 각 `DELETE` 뒤 Todo와 연결 알림 및 PushNotification의 삭제 상태 복구
+17. Token이 없는 개발 목표 완료 `POST`: `401`, `unauthenticated`
+18. Token이 있는 존재하지 않는 개발 목표 완료 `POST`: `404`, `not-found`
+19. 각 `DELETE` 뒤 Todo와 연결 알림 및 PushNotification의 삭제 상태 복구
 
-유효한 Firebase ID Token과 일회용 인증 값이 필요한 Google custom token, account-link, account-link 해제, access-token 폐기와 Apple challenge, custom token, account-link, account-link 해제, access-token 갱신·폐기 및 refresh-token 성공 경로, GitHub 로그인·계정 연결·연결 해제·grant 폐기 성공 경로는 Staging 앱에서 별도로 확인합니다. Token과 인증 코드는 로그와 shell history에 남기지 않습니다.
+유효한 Firebase ID Token과 일회용 인증 값이 필요한 Google custom token, account-link, account-link 해제, access-token 폐기와 Apple challenge, custom token, account-link, account-link 해제, access-token 갱신·폐기 및 refresh-token 성공 경로, GitHub 로그인·계정 연결·연결 해제·grant 폐기 성공 경로, 개발 목표 완료의 성공과 완료 조건 거부 경로는 Staging 앱에서 별도로 확인합니다. Token과 인증 코드는 로그와 shell history에 남기지 않습니다.
 
 오류 로그가 한 항목의 `jsonPayload`로 수집되는지 확인합니다.
 
