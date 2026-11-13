@@ -39,6 +39,11 @@ jobs:
           npm ci --prefix functions
           npm ci --prefix nestjs-api
 
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+
       - name: Write task
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
