@@ -5,6 +5,7 @@ import { AppleAuthenticationModule } from './apple/apple-authentication.module';
 import { FirebaseAuthGuard } from './auth/firebase-auth.guard';
 import { ApiExceptionFilter } from './common/api-exception.filter';
 import { DevelopmentGoalsModule } from './development-goals/development-goals.module';
+import { DevelopmentRecordsModule } from './development-records/development-records.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { GitHubAuthenticationModule } from './github/github-authentication.module';
 import { GoogleAuthenticationModule } from './google/google-authentication.module';
@@ -16,6 +17,7 @@ import { TodosModule } from './todos/todos.module';
   imports: [
     AppleAuthenticationModule,
     DevelopmentGoalsModule,
+    DevelopmentRecordsModule,
     FirebaseModule,
     GitHubAuthenticationModule,
     GoogleAuthenticationModule,

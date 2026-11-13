@@ -28,7 +28,7 @@ flowchart LR
 | 실행 구성 | 소스 | 책임 |
 | --- | --- | --- |
 | Firebase Hosting | `firebase.json` | 공개 요청 진입점과 경로별 rewrite 순서 관리 |
-| Cloud Run `api-v2` | `nestjs-api` | Todo, PushNotification 요청의 Firebase ID Token 검증과 삭제, 개발 목표 완료 판정, Google·Apple·GitHub 인증 관리 |
+| Cloud Run `api-v2` | `nestjs-api` | Todo, PushNotification 요청의 Firebase ID Token 검증과 삭제, 개발 목표 완료 판정, 개발 기록 rollback, Google·Apple·GitHub 인증 관리 |
 | Cloud Functions `api` | `functions` | Staging의 나머지 `/api/**` 요청에 대한 `404` 응답 경계 유지 |
 | Cloud Functions 개별 함수 | `functions` | trigger, Scheduler, Cloud Tasks, FCM 처리 |
 | Firebase Auth | — | 인증이 필요한 경로에 전달된 Bearer token 검증 |
