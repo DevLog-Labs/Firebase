@@ -20,6 +20,8 @@
 
 하나라도 확인되지 않으면 규칙을 배포하지 않습니다.
 
+`firestore.rules`는 Staging과 Production이 함께 사용하는 파일입니다. Production에 규칙을 배포할 때도 Production `api-v2`의 개발 목표 완료 API, Production Hosting의 `/api/goals/**` 경로, 서버 API로 완료를 요청하는 앱 배포가 먼저 확인되어야 합니다. 그 전에 배포하면 Production 사용자는 개발 목표를 완료할 수 없습니다.
+
 ## 설정 확인
 
 규칙 구조 시험과 Firestore emulator 허용·거부 시험을 실행합니다.
