@@ -184,13 +184,6 @@ jobs:
           BRANCH: ${{ needs.prepare.outputs.branch }}
         run: |
           branch="$BRANCH"
-          if git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
-            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state all --json url --jq '.[0].url // empty')"
-            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
-              --body "같은 오류의 자동 수정 브랜치 \`$branch\`가 먼저 만들어져 PR을 만들지 않음${pr:+ ($pr)}"
-            exit 0
-          fi
-
           login="$(gh api user --jq .login)"
           id="$(gh api user --jq .id)"
           git config user.name "$login"
@@ -199,7 +192,15 @@ jobs:
           git checkout -b "$branch"
           git apply --index "$RUNNER_TEMP/artifact/changes.patch"
           git commit -m "fix: Crashlytics 이슈 #${ISSUE_NUMBER} 대응"
-          git push origin "$branch"
+          if ! git push origin "$branch"; then
+            if ! git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
+              exit 1
+            fi
+            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state all --json url --jq '.[0].url // empty')"
+            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --body "같은 오류의 자동 수정 브랜치 \`$branch\`가 먼저 만들어져 PR을 만들지 않음${pr:+ ($pr)}"
+            exit 0
+          fi
 
           summary="$(head -c 1500 "$RUNNER_TEMP/artifact/summary.md")"
           {
