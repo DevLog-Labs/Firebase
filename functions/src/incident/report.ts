@@ -1,5 +1,8 @@
 import { originLabel } from "./classify";
-import type { ErrorGroup } from "./context";
+import type {
+    ErrorGroup,
+    Occurrence
+} from "./context";
 import type { SummaryItem } from "./discord";
 import { autoFixLabel, incidentLabel } from "./github";
 import type { IncidentIssueDraft } from "./github";
@@ -22,7 +25,7 @@ export function buildIncidentIssue(
     item: SummaryItem,
     date: string
 ): IncidentIssueDraft {
-    const markerKey = `${group.issueId}:${group.restStatusCode}`;
+    const markerKey = incidentMarkerKey(group);
     const { riskEvidence, score, origin } = item;
     const { classification } = riskEvidence;
     const decidingAxes = score.decidingAxes.map((axis) => axisLabels[axis]).join(", ") || "-";
@@ -80,6 +83,24 @@ export function buildIncidentIssue(
             riskEvidence.rootCause.summary
         ].join("\n")
     };
+}
+
+// 같은 Crashlytics 이슈 그룹을 식별하는 키 생성
+export function incidentMarkerKey(group: Pick<ErrorGroup, "issueId" | "restStatusCode">): string {
+    return `${group.issueId}:${group.restStatusCode}`;
+}
+
+// 열린 이슈로 추적 중인 오류의 대상 날짜 발생량을 담은 미해결 댓글 생성
+export function buildOngoingComment(
+    occurrence: Occurrence,
+    date: string
+): string {
+    return [
+        `### ${date} 미해결`,
+        "",
+        `- 영향 사용자: ${occurrence.affectedUsers}명`,
+        `- 발생 건수: ${occurrence.events}건`
+    ].join("\n");
 }
 
 // 이슈 그룹이 선별된 사유 목록을 문자열로 변환

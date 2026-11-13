@@ -79,9 +79,7 @@ async function syncDraft(
     const existing = openIssues.get(draft.markerKey);
     try {
         if (existing !== undefined) {
-            await request(token, "post", `/repos/${repository}/issues/${existing}/comments`, {
-                body: draft.updateComment
-            });
+            await commentOnIssue(token, existing, draft.updateComment);
             return { markerKey: draft.markerKey, action: "commented", number: existing };
         }
 
@@ -104,8 +102,22 @@ async function ensureLabels(token: string): Promise<void> {
     }
 }
 
+// 지정한 이슈에 댓글 추가
+export async function commentOnIssue(
+    token: string,
+    number: number,
+    body: string
+): Promise<void> {
+    await request(token, "post", `/repos/${repository}/issues/${number}/comments`, { body });
+}
+
+// 이슈 번호에 대응하는 GitHub 이슈 주소 생성
+export function githubIssueUrl(number: number): string {
+    return `https://github.com/${repository}/issues/${number}`;
+}
+
 // 열린 Crashlytics 이슈의 번호를 식별 키별로 조회. 풀 리퀘스트는 제외
-async function listOpenIncidentIssues(token: string): Promise<Map<string, number>> {
+export async function listOpenIncidentIssues(token: string): Promise<Map<string, number>> {
     const issues = await request(
         token,
         "get",

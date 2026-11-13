@@ -113,6 +113,30 @@ ORDER BY affectedUsers DESC, eventsDay DESC
 LIMIT @maxGroups
 `;
 
+// 열린 이슈로 추적 중인 Crashlytics 이슈들의 대상 날짜 발생량을 이슈와 상태 코드 단위로 조회하는 쿼리
+const selectOccurrencesQuery = `
+WITH events AS (
+    SELECT
+        issue_id,
+        issue_subtitle,
+        installation_uuid,
+        IFNULL((SELECT value FROM UNNEST(custom_keys) WHERE key = "restStatusCode"), "") AS status
+    FROM \`${crashlyticsTable}\`
+    WHERE event_timestamp >= @dayStart
+        AND event_timestamp < @dayEnd
+        AND issue_id IN UNNEST(@issueIds)
+)
+SELECT
+    issue_id AS issueId,
+    status AS restStatusCode,
+    ANY_VALUE(issue_subtitle) AS issueSubtitle,
+    COUNT(DISTINCT installation_uuid) AS affectedUsers,
+    COUNT(*) AS events
+FROM events
+GROUP BY issue_id, status
+ORDER BY affectedUsers DESC, events DESC
+`;
+
 // 이슈 그룹의 대표 이벤트와 스택, 사용자 정보를 조회하는 쿼리
 const selectSamplesQuery = `
 SELECT
@@ -180,6 +204,20 @@ export type ErrorGroup = {
     isRegression: boolean;
     // 최근 일평균보다 크게 늘었는지 여부
     isSurge: boolean;
+};
+
+// 열린 이슈로 추적 중인 오류의 대상 날짜 발생량
+export type Occurrence = {
+    // Crashlytics 이슈 ID
+    issueId: string;
+    // 오류에 기록된 HTTP 상태 코드. REST 오류가 아니면 빈 문자열
+    restStatusCode: string;
+    // Crashlytics 이슈 부제. 오류 도메인과 코드를 담음
+    issueSubtitle: string;
+    // 대상 날짜에 오류를 겪은 고유 설치 수
+    affectedUsers: number;
+    // 대상 날짜 발생 건수
+    events: number;
 };
 
 // 조회한 대표 이벤트 하나
@@ -283,6 +321,32 @@ export async function selectErrorGroups(date: string): Promise<ErrorGroup[]> {
     }));
 }
 
+// 지정한 Crashlytics 이슈들의 대상 날짜 발생량을 영향 사용자 수 순으로 조회
+// 발생하지 않은 이슈는 결과에서 빠짐
+export async function selectOccurrences(
+    date: string,
+    issueIds: string[]
+): Promise<Occurrence[]> {
+    if (issueIds.length === 0) { return []; }
+
+    const { dayStart, dayEnd } = dayWindow(date);
+    const [rows] = await new BigQuery().query({
+        query: selectOccurrencesQuery,
+        params: {
+            dayStart,
+            dayEnd,
+            issueIds
+        }
+    });
+    return (rows as Occurrence[]).map((row) => ({
+        issueId: row.issueId,
+        restStatusCode: row.restStatusCode,
+        issueSubtitle: row.issueSubtitle,
+        affectedUsers: Number(row.affectedUsers),
+        events: Number(row.events)
+    }));
+}
+
 // 이슈 그룹의 영향도 계산 입력 생성
 export function toImpactMetrics(group: ErrorGroup): ImpactMetrics {
     return {
@@ -292,7 +356,7 @@ export function toImpactMetrics(group: ErrorGroup): ImpactMetrics {
 }
 
 // 이슈 그룹을 Discord 요약에 보여 줄 제목 생성
-export function groupTitle(group: ErrorGroup): string {
+export function groupTitle(group: Pick<ErrorGroup, "issueSubtitle" | "restStatusCode">): string {
     return group.restStatusCode === ""
         ? group.issueSubtitle
         : `${group.issueSubtitle} · ${group.restStatusCode}`;
