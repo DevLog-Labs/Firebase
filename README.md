@@ -198,4 +198,11 @@ firebase deploy --project <prod-project-id> --only functions:<functionName>
 
 여러 함수를 배포해야 할 때도 전체 일괄 배포보다 필요한 함수 단위로 나누어 배포합니다.
 
+소스에서 제거한 함수는 `functions:<functionName>` 배포로 삭제되지 않습니다. 각 project에서 명시적으로 삭제하고, 삭제한 함수가 사용하던 색인 설정 변경은 함수 삭제 뒤에 배포합니다.
+
+```bash
+firebase functions:delete <functionName> --project <project-id> --region asia-northeast3
+firebase deploy --project <project-id> --only firestore:indexes
+```
+
 GitHub OAuth 전환 배포 전에는 staging과 prod 모두 `oauthSessions.expiresAt`, `oauthTickets.expiresAt` TTL 설정을 먼저 반영합니다.
