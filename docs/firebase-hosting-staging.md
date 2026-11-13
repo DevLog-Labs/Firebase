@@ -6,7 +6,6 @@
 - Cloud Run 서비스: `api-v2`
 - region: `asia-northeast3`
 - Todo 경로: `/api/todos/**`
-- WebPage 경로: `/api/web-pages/**`
 - PushNotification 경로: `/api/push-notifications/**`
 - Google 인증 경로: `/api/auth/google/**`
 - Apple 인증 경로: `/api/auth/apple/**`
@@ -45,9 +44,8 @@ gcloud run services describe api-v2 \
 13. Token이 없는 GitHub access-token `DELETE`: `401`, `unauthenticated`
 14. Token이 없는 Todo `POST`: `401`
 15. Token이 있는 Todo `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-16. Token이 있는 WebPage `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-17. Token이 있는 PushNotification `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-18. 각 `DELETE` 뒤 Todo와 연결 알림, WebPage 및 PushNotification의 삭제 상태 복구
+16. Token이 있는 PushNotification `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
+17. 각 `DELETE` 뒤 Todo와 연결 알림 및 PushNotification의 삭제 상태 복구
 
 하나라도 확인되지 않으면 Hosting 라우팅을 배포하지 않습니다.
 
@@ -65,12 +63,11 @@ cd ..
 `firebase.json`의 `devlog-staging` rewrite가 다음 순서인지 확인합니다.
 
 1. `/api/todos/**` → Cloud Run `api-v2`
-2. `/api/web-pages/**` → Cloud Run `api-v2`
-3. `/api/push-notifications/**` → Cloud Run `api-v2`
-4. `/api/auth/google/**` → Cloud Run `api-v2`
-5. `/api/auth/apple/**` → Cloud Run `api-v2`
-6. `/api/auth/github/**` → Cloud Run `api-v2`
-7. `/api/**` → Functions `api`
+2. `/api/push-notifications/**` → Cloud Run `api-v2`
+3. `/api/auth/google/**` → Cloud Run `api-v2`
+4. `/api/auth/apple/**` → Cloud Run `api-v2`
+5. `/api/auth/github/**` → Cloud Run `api-v2`
+6. `/api/**` → Functions `api`
 
 Cloud Run rewrite에는 `pinTag`가 없어야 합니다. `devlog-auth-prod` 블록은 변경하지 않습니다.
 
@@ -100,11 +97,10 @@ Functions, Firestore rules, index, Cloud Run은 이 명령의 배포 대상이 �
 
 ## 배포 후 요청 검증
 
-Staging 검증용 Todo, WebPage와 PushNotification 및 Firebase ID Token을 준비합니다. 각 문서는 삭제 요청 전 활성 상태여야 합니다. Header는 표준 입력으로 전달해 Token이 process 목록에 남지 않게 합니다.
+Staging 검증용 Todo와 PushNotification 및 Firebase ID Token을 준비합니다. 각 문서는 삭제 요청 전 활성 상태여야 합니다. Header는 표준 입력으로 전달해 Token이 process 목록에 남지 않게 합니다.
 
 ```bash
 read -r -p "Staging Todo ID: " TODO_ID
-read -r -p "Staging WebPage ID: " WEB_PAGE_ID
 read -r -p "Staging PushNotification ID: " PUSH_NOTIFICATION_ID
 read -r -s -p "Firebase ID Token: " FIREBASE_ID_TOKEN
 printf '\n'
@@ -122,19 +118,6 @@ curl -i -X POST \
 curl -i -X DELETE \
 	-H @- \
 	"${HOSTING_URL}/api/todos/${TODO_ID}/deletion-request" \
-	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
-
-curl -i -X POST \
-	"${HOSTING_URL}/api/web-pages/route-check/deletion-request"
-
-curl -i -X POST \
-	-H @- \
-	"${HOSTING_URL}/api/web-pages/${WEB_PAGE_ID}/deletion-request" \
-	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
-
-curl -i -X DELETE \
-	-H @- \
-	"${HOSTING_URL}/api/web-pages/${WEB_PAGE_ID}/deletion-request" \
 	<<<"Authorization: Bearer ${FIREBASE_ID_TOKEN}"
 
 curl -i -X POST \
@@ -216,7 +199,7 @@ curl -i -X DELETE \
 curl -i -X DELETE \
 	"${HOSTING_URL}/api/auth/github/access-token"
 
-unset FIREBASE_ID_TOKEN TODO_ID WEB_PAGE_ID PUSH_NOTIFICATION_ID HOSTING_URL
+unset FIREBASE_ID_TOKEN TODO_ID PUSH_NOTIFICATION_ID HOSTING_URL
 ```
 
 응답을 다음 순서로 확인합니다.
@@ -224,24 +207,22 @@ unset FIREBASE_ID_TOKEN TODO_ID WEB_PAGE_ID PUSH_NOTIFICATION_ID HOSTING_URL
 1. Token이 없는 Todo `POST`: `401`
 2. Token이 있는 Todo `POST`: `200`, `{"success":true}`
 3. Token이 있는 Todo `DELETE`: `200`, `{"success":true}`
-4. Token이 없는 WebPage `POST`: Cloud Run `api-v2`의 `401`
-5. Token이 있는 WebPage `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-6. Token이 없는 PushNotification `POST`: Cloud Run `api-v2`의 `401`
-7. Token이 있는 PushNotification `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
-8. `/api/auth/apple/challenges` `POST`: Cloud Run `api-v2`의 `200`, `challengeId`, `hashedNonce`, `expiresAt` 필드가 존재
-9. `/api/auth/apple/custom-token` `POST`: Cloud Run `api-v2`의 `400`, `invalid-argument`
-10. body가 빈 Google custom token `POST`: Cloud Run `api-v2`의 `400`, `invalid-argument`
-11. 잘못된 `serverAuthCode`를 전달한 Google custom token `POST`: Cloud Run `api-v2`의 `401`, `invalid-google-proof`
-12. Token이 없는 Google account-link와 access-token `DELETE`: Cloud Run `api-v2`의 `401`
-13. Token이 없는 Apple account-link `PUT`/`DELETE`, access-token `POST`/`DELETE`, refresh-token `POST`: Cloud Run `api-v2`의 `401`
-14. body가 빈 GitHub 로그인 session `POST`: Cloud Run `api-v2`의 `400`, `invalid-argument`
-15. query가 빈 GitHub callback `GET`: Cloud Run `api-v2`의 `302`, `devlog://oauth-callback?error=oauth-failed`
-16. body가 빈 GitHub custom token `POST`: Cloud Run `api-v2`의 `400`, `invalid-argument`
-17. Token이 없는 GitHub 계정 연결 session `POST`: Cloud Run `api-v2`의 `401`, `unauthenticated`
-18. Token이 없는 GitHub account-link `PUT`: Cloud Run `api-v2`의 `401`, `unauthenticated`
-19. Token이 없는 GitHub account-link `DELETE`: Cloud Run `api-v2`의 `401`, `unauthenticated`
-20. Token이 없는 GitHub access-token `DELETE`: Cloud Run `api-v2`의 `401`, `unauthenticated`
-21. 각 `DELETE` 뒤 Todo와 연결 알림, WebPage 및 PushNotification의 삭제 상태 복구
+4. Token이 없는 PushNotification `POST`: Cloud Run `api-v2`의 `401`
+5. Token이 있는 PushNotification `POST`와 `DELETE`: 각각 `200`, `{"success":true}`
+6. `/api/auth/apple/challenges` `POST`: Cloud Run `api-v2`의 `200`, `challengeId`, `hashedNonce`, `expiresAt` 필드가 존재
+7. `/api/auth/apple/custom-token` `POST`: Cloud Run `api-v2`의 `400`, `invalid-argument`
+8. body가 빈 Google custom token `POST`: Cloud Run `api-v2`의 `400`, `invalid-argument`
+9. 잘못된 `serverAuthCode`를 전달한 Google custom token `POST`: Cloud Run `api-v2`의 `401`, `invalid-google-proof`
+10. Token이 없는 Google account-link와 access-token `DELETE`: Cloud Run `api-v2`의 `401`
+11. Token이 없는 Apple account-link `PUT`/`DELETE`, access-token `POST`/`DELETE`, refresh-token `POST`: Cloud Run `api-v2`의 `401`
+12. body가 빈 GitHub 로그인 session `POST`: Cloud Run `api-v2`의 `400`, `invalid-argument`
+13. query가 빈 GitHub callback `GET`: Cloud Run `api-v2`의 `302`, `devlog://oauth-callback?error=oauth-failed`
+14. body가 빈 GitHub custom token `POST`: Cloud Run `api-v2`의 `400`, `invalid-argument`
+15. Token이 없는 GitHub 계정 연결 session `POST`: Cloud Run `api-v2`의 `401`, `unauthenticated`
+16. Token이 없는 GitHub account-link `PUT`: Cloud Run `api-v2`의 `401`, `unauthenticated`
+17. Token이 없는 GitHub account-link `DELETE`: Cloud Run `api-v2`의 `401`, `unauthenticated`
+18. Token이 없는 GitHub access-token `DELETE`: Cloud Run `api-v2`의 `401`, `unauthenticated`
+19. 각 `DELETE` 뒤 Todo와 연결 알림 및 PushNotification의 삭제 상태 복구
 
 유효한 일회용 인증 값이 필요한 Apple challenge, custom token, account-link, account-link 해제, access-token 갱신·폐기 및 refresh-token 성공 경로와 GitHub 로그인·계정 연결·연결 해제·grant 폐기 성공 경로는 Staging 앱에서 확인합니다. 성공 응답과 최신 `api-v2` revision 로그를 함께 확인하며 Token과 인증 코드는 로그와 shell history에 남기지 않습니다.
 
@@ -268,12 +249,12 @@ firebase functions:log \
 unset LATEST_REVISION
 ```
 
-Todo, WebPage, PushNotification과 Google·Apple·GitHub 인증 요청은 최신 `api-v2` revision에서 확인되어야 합니다. 알려지지 않은 나머지 `/api/**` 요청은 Functions `api`의 `404` 응답으로 확인되어야 합니다.
+Todo, PushNotification과 Google·Apple·GitHub 인증 요청은 최신 `api-v2` revision에서 확인되어야 합니다. 알려지지 않은 나머지 `/api/**` 요청은 Functions `api`의 `404` 응답으로 확인되어야 합니다.
 
 ## `api-v2` revision 복구
 
 Hosting 전환 이후 `api-v2` 요청 검증이 실패하면 [`cloud-run-staging.md`](./cloud-run-staging.md#revision-복구)에 따라 이전 정상 revision으로 트래픽을 되돌립니다. 첫 revision이라 이전 정상 revision이 없으면 수정본을 배포합니다. `firebase.json`과 Hosting rewrite는 변경하지 않습니다.
 
-복구 뒤 앞 절의 Hosting 요청을 다시 실행하고 Todo, WebPage, PushNotification과 Google·Apple·GitHub 인증 요청이 선택한 `api-v2` revision에 기록되는지 확인합니다. 알려지지 않은 나머지 `/api/**` 요청은 Functions `api`의 `404` 응답과 로그로 확인합니다.
+복구 뒤 앞 절의 Hosting 요청을 다시 실행하고 Todo, PushNotification과 Google·Apple·GitHub 인증 요청이 선택한 `api-v2` revision에 기록되는지 확인합니다. 알려지지 않은 나머지 `/api/**` 요청은 Functions `api`의 `404` 응답과 로그로 확인합니다.
 
 복구 과정에서는 Functions, Firestore, Secret과 Production 자원을 삭제하거나 변경하지 않습니다. 원인을 수정한 뒤에는 `api-v2` 직접 호출 검증 전체를 다시 통과하고 이 문서의 정상 전환 절차를 처음부터 수행합니다.
