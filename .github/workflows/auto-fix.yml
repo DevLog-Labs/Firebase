@@ -12,9 +12,43 @@ permissions:
   contents: read
 
 jobs:
+  prepare:
+    name: Prepare
+    if: github.event.label.name == 'auto-fix'
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.branch.outputs.branch }}
+      skip: ${{ steps.branch.outputs.skip }}
+
+    steps:
+      - name: Check existing fix
+        id: branch
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTOMATION_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          marker="$(printf '%s' "$ISSUE_BODY" | sed -nE 's/.*<!-- crashlytics:([^ ]+) -->.*/\1/p' | head -n 1)"
+          if [ -n "$marker" ]; then
+            branch="auto-fix/crashlytics-$(printf '%s' "$marker" | tr -c 'A-Za-z0-9_-' '-')"
+          else
+            branch="auto-fix/issue-${ISSUE_NUMBER}"
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" > /dev/null 2>&1; then
+            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state all --json url --jq '.[0].url // empty')"
+            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --body "같은 오류의 자동 수정 브랜치 \`$branch\`가 이미 있어 수정 초안을 만들지 않음${pr:+ ($pr)}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   codex:
     name: Draft
-    if: github.event.label.name == 'auto-fix'
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
     runs-on: ubuntu-latest
     outputs:
       has_changes: ${{ steps.patch.outputs.has_changes }}
@@ -105,7 +139,9 @@ jobs:
 
   open_pr:
     name: Pull Request
-    needs: codex
+    needs:
+      - prepare
+      - codex
     if: needs.codex.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
 
@@ -145,10 +181,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_AUTOMATION_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          BRANCH: ${{ needs.prepare.outputs.branch }}
         run: |
-          branch="auto-fix/issue-${ISSUE_NUMBER}"
+          branch="$BRANCH"
           if git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
-            echo "이미 같은 브랜치가 있어 건너뜀: $branch"
+            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state all --json url --jq '.[0].url // empty')"
+            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --body "같은 오류의 자동 수정 브랜치 \`$branch\`가 먼저 만들어져 PR을 만들지 않음${pr:+ ($pr)}"
             exit 0
           fi
 
