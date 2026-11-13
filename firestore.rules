@@ -26,7 +26,8 @@ service cloud.firestore {
       match /developmentGoals/{goalId} {
         allow read: if request.auth != null && request.auth.uid == userId;
         allow create, update: if request.auth != null && request.auth.uid == userId &&
-          userDataWriteAllowed(userId);
+          userDataWriteAllowed(userId) &&
+          request.resource.data.get('status', null) != 'completed';
 
         // 개발 기록의 생성과 초안, 현재 확정 버전 참조 갱신
         match /records/{recordId} {

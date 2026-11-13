@@ -36,6 +36,7 @@ let testEnvironment;
 
     try {
         await assertOwnerCreatesAndTransitionsGoal();
+        await assertClientCannotCompleteGoal();
         await assertOwnerCreatesRecordAndSavesDraft();
         await assertOwnerConfirmsDraftWithNewVersion();
         await assertOwnerReadsVersions();
@@ -66,6 +67,24 @@ async function assertOwnerCreatesAndTransitionsGoal() {
     await assertSucceeds(updateDoc(doc(db, goalPath), { status: "archived" }));
     await assertSucceeds(updateDoc(doc(db, goalPath), { status: "inProgress" }));
     await assertSucceeds(getDoc(doc(db, goalPath)));
+}
+
+// 서버만 목표를 완료하도록 클라이언트의 completed 저장 거부 검증
+async function assertClientCannotCompleteGoal() {
+    await testEnvironment.clearFirestore();
+    const db = ownerFirestore();
+
+    await assertFails(setDoc(doc(db, goalPath), { ...goalData(), status: "completed" }));
+    await assertSucceeds(setDoc(doc(db, goalPath), goalData()));
+    await assertFails(updateDoc(doc(db, goalPath), { status: "completed", completedAt: new Date() }));
+
+    await seed({ [goalPath]: { ...goalData(), status: "completed", completedAt: new Date() } });
+    await assertFails(updateDoc(doc(db, goalPath), { title: "changed" }));
+    await assertSucceeds(updateDoc(doc(db, goalPath), {
+        status: "inProgress",
+        completedAt: deleteField(),
+        updatedAt: new Date()
+    }));
 }
 
 // 소유자의 기록 생성과 초안 저장 허용 검증

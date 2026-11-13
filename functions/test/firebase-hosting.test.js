@@ -45,6 +45,13 @@ assert.deepStrictEqual(staging.rewrites, [
         }
     },
     {
+        source: "/api/goals/**",
+        run: {
+            serviceId: "api-v2",
+            region: "asia-northeast3"
+        }
+    },
+    {
         source: "/api/**",
         function: {
             functionId: "api",
