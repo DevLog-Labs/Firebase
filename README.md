@@ -171,10 +171,13 @@ npm run lint
 npm run build
 npm test -- --runInBand
 npm run test:e2e -- --runInBand
+npm run test:emulator
 npm run docker:build
 cd ..
 git diff --check
 ```
+
+`nestjs-api` job은 `npm run test:emulator` 실행 전에 Java 21과 버전을 고정한 Firebase CLI를 설치합니다.
 
 Docker 이미지는 검증을 위해 build만 수행하며 실행하거나 게시하지 않습니다. `report` job은 Functions와 NestJS API 결과를 함께 확인하고 실패 원인을 Pull Request 댓글로 남깁니다.
 
