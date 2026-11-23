@@ -22,12 +22,23 @@ service cloud.firestore {
           userDataWriteAllowed(userId);
       }
 
-      // 개발 목표의 생성과 상태 전환
+      // 개발 목표의 생성과 상태 전환, 완료된 목표의 제목과 설명 수정
       match /developmentGoals/{goalId} {
         allow read: if request.auth != null && request.auth.uid == userId;
-        allow create, update: if request.auth != null && request.auth.uid == userId &&
+        allow create: if request.auth != null && request.auth.uid == userId &&
           userDataWriteAllowed(userId) &&
           request.resource.data.get('status', null) != 'completed';
+        // 완료된 목표는 상태를 유지한 채 제목, 설명, 갱신 시각만 바꾸는 갱신 허용
+        allow update: if request.auth != null && request.auth.uid == userId &&
+          userDataWriteAllowed(userId) &&
+          (
+            request.resource.data.get('status', null) != 'completed' ||
+            (
+              resource.data.get('status', null) == 'completed' &&
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['title', 'markdownDescription', 'updatedAt'])
+            )
+          );
 
         // 개발 기록의 생성과 초안, 현재 확정 버전 참조 갱신
         match /records/{recordId} {
